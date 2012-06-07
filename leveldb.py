@@ -31,10 +31,9 @@
       * batches
       * custom comparators, filter policies, caches
 
-    This isn't exactly the most performant interface to LevelDB (possible
-    speed gains may be introduced by fixing reads to not do byte-for-byte
-    copies of value data), but this interface requires nothing more than the
-    leveldb shared object with the C api being installed.
+    This isn't exactly the most performant interface to LevelDB, but this
+    interface requires nothing more than the leveldb shared object with the C
+    api being installed.
 
     There's a bug with LevelDB 1.5's build script that may make getting this
     to work challenging for you. See:
@@ -138,11 +137,8 @@ class DB(object):
 
     def _checkError(self, error):
         if bool(error):
-            message = ""
-            pos = 0
-            while error[pos] != "\0":
-                message += error[pos]
-                pos += 1
+            message = ctypes.string_at(error)
+            _libc.free(ctypes.cast(error, ctypes.c_void_p))
             raise Error(message)
 
     def close(self):
@@ -184,9 +180,7 @@ class DB(object):
         val_p = _ldb.leveldb_get(self._db, options, key, len(key),
                 ctypes.byref(size), ctypes.byref(error))
         if bool(val_p):
-            val = ""
-            for pos in xrange(size.value):
-                val += val_p[pos]
+            val = ctypes.string_at(val_p, size.value)
             _libc.free(ctypes.cast(val_p, ctypes.c_void_p))
         else:
             val = None
