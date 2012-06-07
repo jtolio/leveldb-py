@@ -108,6 +108,13 @@ class Error(Exception):
     pass
 
 
+def _checkError(error):
+    if bool(error):
+        message = ctypes.string_at(error)
+        _libc.free(ctypes.cast(error, ctypes.c_void_p))
+        raise Error(message)
+
+
 class DB(object):
 
     def __init__(self, path, bloom_filter_size=10, create_if_missing=False,
@@ -132,14 +139,8 @@ class DB(object):
         error = ctypes.POINTER(ctypes.c_char)()
         db = _ldb.leveldb_open(options, path, ctypes.byref(error))
         _ldb.leveldb_options_destroy(options)
-        self._checkError(error)
+        _checkError(error)
         self._db = db
-
-    def _checkError(self, error):
-        if bool(error):
-            message = ctypes.string_at(error)
-            _libc.free(ctypes.cast(error, ctypes.c_void_p))
-            raise Error(message)
 
     def close(self):
         closed, self._closed = self._closed, True
@@ -159,7 +160,7 @@ class DB(object):
         _ldb.leveldb_put(self._db, options, key, len(key), val, len(val),
                 ctypes.byref(error))
         _ldb.leveldb_writeoptions_destroy(options)
-        self._checkError(error)
+        _checkError(error)
 
     def delete(self, key, sync=False):
         error = ctypes.POINTER(ctypes.c_char)()
@@ -168,7 +169,7 @@ class DB(object):
         _ldb.leveldb_delete(self._db, options, key, len(key),
                 ctypes.byref(error))
         _ldb.leveldb_writeoptions_destroy(options)
-        self._checkError(error)
+        _checkError(error)
 
     def get(self, key, verify_checksums=False, fill_cache=True):
         error = ctypes.POINTER(ctypes.c_char)()
@@ -185,5 +186,5 @@ class DB(object):
         else:
             val = None
         _ldb.leveldb_readoptions_destroy(options)
-        self._checkError(error)
+        _checkError(error)
         return val
