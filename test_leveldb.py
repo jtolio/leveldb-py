@@ -65,6 +65,7 @@ class LevelDBTestCases(unittest.TestCase):
                 fill_cache=False), "val2")
         self.assertEqual(db.get("key1"), "val1")
         self.assertEqual(db.get("key2"), "val2")
+        db.close()
 
     def testDelete(self):
         db = leveldb.DB(self.db_path, create_if_missing=True)
@@ -82,6 +83,7 @@ class LevelDBTestCases(unittest.TestCase):
         self.assertTrue(db.get("key1") is None)
         self.assertTrue(db.get("key2") is None)
         self.assertEqual(db.get("key3"), "val3")
+        db.close()
 
     def testPutSync(self, size=100):
         db = leveldb.DB(self.db_path, create_if_missing=True)
@@ -97,6 +99,7 @@ class LevelDBTestCases(unittest.TestCase):
         sync_time = start_unsync_time - start_sync_time
         unsync_time = end_time - start_unsync_time
         self.assertTrue(sync_time > 10 * unsync_time)
+        db.close()
 
     def testDeleteSync(self, size=100):
         db = leveldb.DB(self.db_path, create_if_missing=True)
@@ -115,6 +118,7 @@ class LevelDBTestCases(unittest.TestCase):
         sync_time = end_sync_time - start_sync_time
         unsync_time = end_unsync_time - start_unsync_time
         self.assertTrue(sync_time > 10 * unsync_time)
+        db.close()
 
 
 def main():

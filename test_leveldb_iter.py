@@ -26,22 +26,21 @@ __email__ = "shanemhansen@gmail.com"
 
 import os
 import shutil
-
+import leveldb
 import tempfile
 import unittest
 
-import leveldb
-
 
 class LevelDBIteratorTest(unittest.TestCase):
-    """
-    Test that leveldb is iterable.
-    """
+    """Test that leveldb is iterable."""
 
     def setUp(self):
         self.dir = tempfile.mkdtemp()
-        self.db = leveldb.DB(os.path.join(self.dir, "db"), create_if_missing=True)
+        self.db = leveldb.DB(os.path.join(self.dir, "db"),
+                create_if_missing=True, error_if_exists=True)
+
     def tearDown(self):
+        self.db.close()
         shutil.rmtree(self.dir)
 
     def test_iteration(self):
@@ -55,16 +54,16 @@ class LevelDBIteratorTest(unittest.TestCase):
     def test_iteration_with_break(self):
         self.db.put('a', 'b')
         self.db.put('c', 'd')
-        for (key, value) in self.db:
+        for key, value in self.db:
             self.assertEqual((key, value), ('a', 'b'))
             break
 
-    def test_iteraton_empty_db(self):
+    def test_iteration_empty_db(self):
         """
         Test the null condition, no entries in the database.
         """
-        for _ignored in self.db:
-            pass
+        for _ in self.db:
+            self.fail("shouldn't happen")
 
     def test_seek(self):
         """
@@ -78,7 +77,7 @@ class LevelDBIteratorTest(unittest.TestCase):
         iterator = iter(self.db).seek("c")
         self.assertEqual(iterator.next(), ('ca', 'a'))
         self.assertEqual(iterator.next(), ('cb', 'b'))
-        #seek backwards
+        # seek backwards
         iterator.seek('a')
         self.assertEqual(iterator.next(), ('a', 'b'))
 
@@ -93,8 +92,8 @@ class LevelDBIteratorTest(unittest.TestCase):
         iter1 = iter(self.db)
         iter2 = iter(self.db)
         self.assertEqual(iter1.next(), entries[0])
-        #garbage collect iter1, seek iter2 past the end
-        #of the db. Make sure everything works.
+        # garbage collect iter1, seek iter2 past the end of the db. Make sure
+        # everything works.
         del iter1
         iter2.seek('z')
         self.assertRaises(StopIteration, iter2.next)
@@ -106,7 +105,7 @@ class LevelDBIteratorTest(unittest.TestCase):
         entry = iterator.next()
         iterator.prev()
         self.assertEqual(entry, iterator.next())
-        #It's ok to call prev when the iterator is at position 0
+        # it's ok to call prev when the iterator is at position 0
         iterator.prev()
         self.assertEqual(entry, iterator.next())
 
@@ -114,8 +113,7 @@ class LevelDBIteratorTest(unittest.TestCase):
         self.db.put('a', 'b')
         self.db.put('b', 'b')
         iterator = iter(self.db)
-        iterator.seek_to_last()
+        iterator.seekLast()
         self.assertEqual(iterator.next(), ('b', 'b'))
-        iterator.seek_to_first()
+        iterator.seekFirst()
         self.assertEqual(iterator.next(), ('a', 'b'))
-

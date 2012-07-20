@@ -26,7 +26,6 @@
     http://code.google.com/p/leveldb-py/
 
     Missing still (but in progress):
-      * iterators
       * snapshots
       * batches
       * custom comparators, filter policies, caches
@@ -45,6 +44,7 @@ __email__ = "jt@spacemonkey.com"
 
 import ctypes
 import ctypes.util
+from collections import namedtuple
 
 _ldb = ctypes.CDLL(ctypes.util.find_library('leveldb'))
 _libc = ctypes.CDLL(ctypes.util.find_library('c'))
@@ -101,30 +101,29 @@ _ldb.leveldb_readoptions_set_verify_checksums.argtypes = [ctypes.c_void_p,
         ctypes.c_ubyte]
 _ldb.leveldb_readoptions_set_fill_cache.argtypes = [ctypes.c_void_p,
         ctypes.c_ubyte]
+
 _ldb.leveldb_create_iterator.argtypes = [ctypes.c_void_p,  ctypes.c_void_p]
 _ldb.leveldb_create_iterator.restype = ctypes.c_void_p
 _ldb.leveldb_iter_destroy.argtypes = [ctypes.c_void_p]
 _ldb.leveldb_iter_valid.argtypes = [ctypes.c_void_p]
 _ldb.leveldb_iter_valid.restype = ctypes.c_bool
-_ldb.leveldb_iter_seek_to_first.argtypes = [ctypes.c_void_p]
-_ldb.leveldb_iter_seek_to_first.restype = None
-_ldb.leveldb_iter_key.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_size_t)]
+_ldb.leveldb_iter_key.argtypes = [ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_size_t)]
 _ldb.leveldb_iter_key.restype = ctypes.c_char_p
-_ldb.leveldb_iter_value.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_size_t)]
+_ldb.leveldb_iter_value.argtypes = [ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_size_t)]
 _ldb.leveldb_iter_value.restype = ctypes.c_char_p
 _ldb.leveldb_iter_next.argtypes = [ctypes.c_void_p]
-_ldb.leveldb_iter_next.restype = None
 _ldb.leveldb_iter_prev.argtypes = [ctypes.c_void_p]
-_ldb.leveldb_iter_prev.restype = None
 _ldb.leveldb_iter_seek_to_first.argtypes = [ctypes.c_void_p]
-_ldb.leveldb_iter_seek_to_first.restype = None
 _ldb.leveldb_iter_seek_to_last.argtypes = [ctypes.c_void_p]
-_ldb.leveldb_iter_seek_to_last.restype = None
-
-_ldb.leveldb_iter_seek.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_size_t]
-_ldb.leveldb_iter_seek.restype = None
+_ldb.leveldb_iter_seek.argtypes = [ctypes.c_void_p, ctypes.c_char_p,
+        ctypes.c_size_t]
 
 _libc.free.argtypes = [ctypes.c_void_p]
+
+
+Row = namedtuple('Row', 'key value')
 
 
 class Error(Exception):
@@ -137,91 +136,140 @@ def _checkError(error):
         _libc.free(ctypes.cast(error, ctypes.c_void_p))
         raise Error(message)
 
+
 class DBIter(object):
+    """A wrapper around leveldb iterators. Can work like an idiomatic Python
+    iterator, or can give you more control.
     """
-    A wrapper around leveldb_iterator_t supporting idiomatic python iteration
-    """
-    def __init__(self, db):
-        self.db = db
+
+    def __init__(self, db, verify_checksums=False, fill_cache=True):
+        # DO NOT save a pointer to db in this iterator, as it will cause a
+        # reference cycle
+        db._registerIterator(self)
         options = _ldb.leveldb_readoptions_create()
-        iterator = _ldb.leveldb_create_iterator(self.db._db, options)
+        _ldb.leveldb_readoptions_set_verify_checksums(options,
+                verify_checksums)
+        _ldb.leveldb_readoptions_set_fill_cache(options, fill_cache)
+        self._iterator = _ldb.leveldb_create_iterator(db._db, options)
         _ldb.leveldb_readoptions_destroy(options)
-        self.leveldb_iterator_t = iterator
-        _ldb.leveldb_iter_seek_to_first(iterator)
-        self._finalized = True
+
+    def _close(self):
+        if self._iterator:
+            _ldb.leveldb_iter_destroy(self._iterator)
+            self._iterator = None
 
     def __del__(self):
-        _ldb.leveldb_iter_destroy(self.leveldb_iterator_t)
+        self._close()
 
-    def seek(self, key_start):
+    def valid(self):
+        """Returns whether the iterator is valid or not
+
+        @rtype: bool
         """
-        Move the iterator to key_start. This may be called after StopIteration,
+        assert self._iterator
+        return _ldb.leveldb_iter_valid(self._iterator)
+
+    def seekFirst(self):
+        """
+        Jump to first key in database
+
+        @return: self
+        @rtype: DBIter
+        """
+        assert self._iterator
+        _ldb.leveldb_iter_seek_to_first(self._iterator)
+        return self
+
+    def seekLast(self):
+        """
+        Jump to last key in database
+
+        @return: self
+        @rtype: DBIter
+        """
+        assert self._iterator
+        _ldb.leveldb_iter_seek_to_last(self._iterator)
+        return self
+
+    def seek(self, key):
+        """Move the iterator to key. This may be called after StopIteration,
         allowing you to reuse an iterator safely.
 
-        @param key_start: Where to position the iterator. In a database
-           containing the keys 'a', 'b', 'c'. self.seek('b');self.next()=='b'
-        @type key_start: str
+        @param key: Where to position the iterator.
+        @type key: str
 
-        @returns: self, this is a mutating method which just returns self
-            for convenient chaining.
-        @rtype: leveldb.DBIter
+        @return: self
+        @rtype: DBIter
         """
-        _ldb.leveldb_iter_seek(
-            self.leveldb_iterator_t,
-            key_start, ctypes.c_size_t(len(key_start)))
-        #just for chaining: for i in self.seek("zed"):
+        assert self._iterator
+        _ldb.leveldb_iter_seek(self._iterator, key, len(key))
         return self
-        
+
+    def key(self):
+        """Returns the iterator's current key. You should be sure the iterator
+        is currently valid first by calling valid()
+
+        @rtype: string
+        """
+        assert self._iterator
+        length = ctypes.c_size_t(0)
+        val_p = _ldb.leveldb_iter_key(self._iterator, ctypes.byref(length))
+        assert bool(val_p)
+        return ctypes.string_at(val_p, length.value)
+
+    def value(self):
+        """Returns the iterator's current value. You should be sure the
+        iterator is currently valid first by calling valid()
+
+        @rtype: string
+        """
+        assert self._iterator
+        length = ctypes.c_size_t(0)
+        val_p = _ldb.leveldb_iter_value(self._iterator, ctypes.byref(length))
+        assert bool(val_p)
+        return ctypes.string_at(val_p, length.value)
+
     def __iter__(self):
         return self
 
     def next(self):
+        """Advances the iterator one step. Also returns the current value prior
+        to moving the iterator
+
+        @rtype: Row (namedtuple of key, value)
+
+        @raise StopIteration: if called on an iterator that is not valid
         """
-        Yields a tuple of (key, value).
-        Calls leveldb_iter_next
-        """
-        if not _ldb.leveldb_iter_valid(self.leveldb_iterator_t):
+        if not self.valid():
             raise StopIteration()
-        length = ctypes.c_size_t(0)
-        val_p = _ldb.leveldb_iter_key(
-            self.leveldb_iterator_t, ctypes.byref(length))
-        if bool(val_p):
-            key = ctypes.string_at(val_p, length.value)
-            #TODO read docs to determine if needs to be freed
-            #            _libc.free(ctypes.cast(val_p, ctypes.c_void_p))
-        else:
-            key = None
-        length = ctypes.c_size_t(0)
-        val_p = _ldb.leveldb_iter_value(
-            self.leveldb_iterator_t, ctypes.byref(length))
-        if bool(val_p):
-            val = ctypes.string_at(val_p, length.value)
-        else:
-            val = None
-        _ldb.leveldb_iter_next(self.leveldb_iterator_t)
-        return (key, val)
+        rv = Row(self.key(), self.value())
+        self.stepForward()
+        return rv
 
     def prev(self):
-        """
-        Not symmetric to prev. Backs the iterator up one step. So:
-        the following is true:
-        a = self.next()
-        self.prev()
-        a == self.next()
-        """
-        _ldb.leveldb_iter_prev(self.leveldb_iterator_t)
+        """Backs the iterator up one step. Also returns the current value prior
+        to moving the iterator.
 
-    def seek_to_first(self):
-        """
-        Jump to first key in database
-        """
-        _ldb.leveldb_iter_seek_to_first(self.leveldb_iterator_t)
+        @rtype: Row (namedtuple of key, value)
 
-    def seek_to_last(self):
+        @raise StopIteration: if called on an iterator that is not valid
         """
-        Jump to last key in database
-        """
-        _ldb.leveldb_iter_seek_to_last(self.leveldb_iterator_t)
+        if not self.valid():
+            raise StopIteration()
+        rv = Row(self.key(), self.value())
+        self.stepBackward()
+        return rv
+
+    def stepForward(self):
+        """Same as next but does not return any data or check for validity"""
+        assert self._iterator
+        _ldb.leveldb_iter_next(self._iterator)
+
+    def stepBackward(self):
+        """Same as prev but does not return any data or check for validity"""
+        assert self._iterator
+        _ldb.leveldb_iter_prev(self._iterator)
+
 
 class DB(object):
 
@@ -235,6 +283,7 @@ class DB(object):
         self._cache = _ldb.leveldb_cache_create_lru(block_cache_size)
         self._db = None
         self._closed = False
+        self._iterators = []
         options = _ldb.leveldb_options_create()
         _ldb.leveldb_options_set_filter_policy(options, self._filter_policy)
         _ldb.leveldb_options_set_create_if_missing(options, create_if_missing)
@@ -253,6 +302,9 @@ class DB(object):
     def close(self):
         closed, self._closed = self._closed, True
         if not closed:
+            for iterator in self._iterators:
+                iterator._close()
+            self._iterators = []
             if self._db:
                 _ldb.leveldb_close(self._db)
             _ldb.leveldb_cache_destroy(self._cache)
@@ -260,6 +312,9 @@ class DB(object):
 
     def __del__(self):
         self.close()
+
+    def _registerIterator(self, iterator):
+        self._iterators.append(iterator)
 
     def put(self, key, val, sync=False):
         error = ctypes.POINTER(ctypes.c_char)()
@@ -297,6 +352,11 @@ class DB(object):
         _checkError(error)
         return val
 
+    def iterator(self, verify_checksums=False, fill_cache=True):
+        return DBIter(self, verify_checksums=verify_checksums,
+                fill_cache=fill_cache)
+
     def __iter__(self):
         dbiter = DBIter(self)
+        dbiter.seekFirst()
         return dbiter
