@@ -43,6 +43,7 @@ __email__ = "jt@spacemonkey.com"
 
 import ctypes
 import ctypes.util
+import weakref
 from collections import namedtuple
 
 _ldb = ctypes.CDLL(ctypes.util.find_library('leveldb'))
@@ -154,6 +155,7 @@ class Iter(object):
     def __init__(self, db, verify_checksums=False, fill_cache=True):
         # DO NOT save a pointer to db in this iterator, as it will cause a
         # reference cycle
+        assert not db._closed
         db._registerIterator(self)
         options = _ldb.leveldb_readoptions_create()
         _ldb.leveldb_readoptions_set_verify_checksums(options,
@@ -310,7 +312,7 @@ class DB(object):
         self._cache = _ldb.leveldb_cache_create_lru(block_cache_size)
         self._db = None
         self._closed = False
-        self._iterators = []
+        self._iterators = weakref.WeakValueDictionary()
         options = _ldb.leveldb_options_create()
         _ldb.leveldb_options_set_filter_policy(options, self._filter_policy)
         _ldb.leveldb_options_set_create_if_missing(options, create_if_missing)
@@ -329,9 +331,11 @@ class DB(object):
     def close(self):
         closed, self._closed = self._closed, True
         if not closed:
-            for iterator in self._iterators:
-                iterator._close()
-            self._iterators = []
+            for iterator in self._iterators.valuerefs():
+                iterator = iterator()
+                if iterator is not None:
+                    iterator._close()
+            self._iterators = weakref.WeakValueDictionary()
             if self._db:
                 _ldb.leveldb_close(self._db)
             _ldb.leveldb_cache_destroy(self._cache)
@@ -341,7 +345,7 @@ class DB(object):
         self.close()
 
     def _registerIterator(self, iterator):
-        self._iterators.append(iterator)
+        self._iterators[id(iterator)] = iterator
 
     def put(self, key, val, sync=False):
         error = ctypes.POINTER(ctypes.c_char)()
