@@ -27,7 +27,6 @@
 
     Missing still (but in progress):
       * snapshots
-      * batches
       * custom comparators, filter policies, caches
 
     This isn't exactly the most performant interface to LevelDB, but this
@@ -118,6 +117,16 @@ _ldb.leveldb_iter_prev.argtypes = [ctypes.c_void_p]
 _ldb.leveldb_iter_seek_to_first.argtypes = [ctypes.c_void_p]
 _ldb.leveldb_iter_seek_to_last.argtypes = [ctypes.c_void_p]
 _ldb.leveldb_iter_seek.argtypes = [ctypes.c_void_p, ctypes.c_char_p,
+        ctypes.c_size_t]
+
+_ldb.leveldb_writebatch_create.argtypes = []
+_ldb.leveldb_writebatch_create.restype = ctypes.c_void_p
+_ldb.leveldb_writebatch_destroy.argtypes = [ctypes.c_void_p]
+_ldb.leveldb_writebatch_clear.argtypes = [ctypes.c_void_p]
+
+_ldb.leveldb_writebatch_put.argtypes = [ctypes.c_void_p, ctypes.c_char_p,
+        ctypes.c_size_t, ctypes.c_char_p, ctypes.c_size_t]
+_ldb.leveldb_writebatch_delete.argtypes = [ctypes.c_void_p, ctypes.c_char_p,
         ctypes.c_size_t]
 
 _libc.free.argtypes = [ctypes.c_void_p]
@@ -271,6 +280,24 @@ class DBIter(object):
         _ldb.leveldb_iter_prev(self._iterator)
 
 
+class WriteBatch(object):
+
+    def __init__(self):
+        self._batch = _ldb.leveldb_writebatch_create()
+
+    def __del__(self):
+        _ldb.leveldb_writebatch_destroy(self._batch)
+
+    def put(self, key, val):
+        _ldb.leveldb_writebatch_put(self._batch, key, len(key), val, len(val))
+
+    def delete(self, key):
+        _ldb.leveldb_writebatch_delete(self._batch, key, len(key))
+
+    def clear(self):
+        _ldb.leveldb_writebatch_clear(self._batch)
+
+
 class DB(object):
 
     def __init__(self, path, bloom_filter_size=10, create_if_missing=False,
@@ -351,6 +378,15 @@ class DB(object):
         _ldb.leveldb_readoptions_destroy(options)
         _checkError(error)
         return val
+
+    def write(self, batch, sync=False):
+        error = ctypes.POINTER(ctypes.c_char)()
+        options = _ldb.leveldb_writeoptions_create()
+        _ldb.leveldb_writeoptions_set_sync(options, sync)
+        _ldb.leveldb_write(self._db, options, batch._batch,
+                ctypes.byref(error))
+        _ldb.leveldb_writeoptions_destroy(options)
+        _checkError(error)
 
     def iterator(self, verify_checksums=False, fill_cache=True):
         return DBIter(self, verify_checksums=verify_checksums,
