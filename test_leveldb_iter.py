@@ -81,6 +81,25 @@ class LevelDBIteratorTest(unittest.TestCase):
         iterator.seek('a')
         self.assertEqual(iterator.next(), ('a', 'b'))
 
+    def test_prefix(self):
+        """
+        Test iterator prefixes
+        """
+        batch = leveldb.WriteBatch()
+        batch.put('a', 'b')
+        batch.put('b', 'b')
+        batch.put('cd', 'a')
+        batch.put('ce', 'a')
+        batch.put('c', 'a')
+        batch.put('f', 'b')
+        self.db.write(batch)
+        iterator = self.db.iterator(prefix="c")
+        iterator.seekFirst()
+        self.assertEqual(iterator.next(), ('', 'a'))
+        self.assertEqual(iterator.next(), ('d', 'a'))
+        self.assertEqual(iterator.next(), ('e', 'a'))
+        self.assertRaises(StopIteration, iterator.next)
+
     def test_multiple_iterators(self):
         """
         Make sure that things work with multiple iterator objects

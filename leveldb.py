@@ -152,7 +152,8 @@ class Iter(object):
     iterator, or can give you more control.
     """
 
-    def __init__(self, db, verify_checksums=False, fill_cache=True):
+    def __init__(self, db, verify_checksums=False, fill_cache=True,
+            prefix=None):
         # DO NOT save a pointer to db in this iterator, as it will cause a
         # reference cycle
         assert not db._closed
@@ -163,6 +164,7 @@ class Iter(object):
         _ldb.leveldb_readoptions_set_fill_cache(options, fill_cache)
         self._iterator = _ldb.leveldb_create_iterator(db._db, options)
         _ldb.leveldb_readoptions_destroy(options)
+        self._prefix = prefix
 
     def _close(self):
         if self._iterator:
@@ -178,7 +180,14 @@ class Iter(object):
         @rtype: bool
         """
         assert self._iterator
-        return _ldb.leveldb_iter_valid(self._iterator)
+        valid = _ldb.leveldb_iter_valid(self._iterator)
+        if self._prefix is None or not valid:
+            return valid
+        length = ctypes.c_size_t(0)
+        val_p = _ldb.leveldb_iter_key(self._iterator, ctypes.byref(length))
+        assert bool(val_p)
+        return (ctypes.string_at(val_p, length.value)[:len(self._prefix)] ==
+                self._prefix)
 
     def seekFirst(self):
         """
@@ -188,7 +197,11 @@ class Iter(object):
         @rtype: Iter
         """
         assert self._iterator
-        _ldb.leveldb_iter_seek_to_first(self._iterator)
+        if self._prefix is not None:
+            _ldb.leveldb_iter_seek(self._iterator, self._prefix,
+                    len(self._prefix))
+        else:
+            _ldb.leveldb_iter_seek_to_first(self._iterator)
         return self
 
     def seekLast(self):
@@ -199,6 +212,8 @@ class Iter(object):
         @rtype: Iter
         """
         assert self._iterator
+        if self._prefix is not None:
+            raise Exception("seekLast not supported with prefix iterators")
         _ldb.leveldb_iter_seek_to_last(self._iterator)
         return self
 
@@ -213,6 +228,8 @@ class Iter(object):
         @rtype: Iter
         """
         assert self._iterator
+        if self._prefix is not None:
+            key = self._prefix + key
         _ldb.leveldb_iter_seek(self._iterator, key, len(key))
         return self
 
@@ -226,7 +243,10 @@ class Iter(object):
         length = ctypes.c_size_t(0)
         val_p = _ldb.leveldb_iter_key(self._iterator, ctypes.byref(length))
         assert bool(val_p)
-        return ctypes.string_at(val_p, length.value)
+        key = ctypes.string_at(val_p, length.value)
+        if self._prefix is not None:
+            return key[len(self._prefix):]
+        return key
 
     def value(self):
         """Returns the iterator's current value. You should be sure the
@@ -392,9 +412,9 @@ class DB(object):
         _ldb.leveldb_writeoptions_destroy(options)
         _checkError(error)
 
-    def iterator(self, verify_checksums=False, fill_cache=True):
+    def iterator(self, verify_checksums=False, fill_cache=True, prefix=None):
         return Iter(self, verify_checksums=verify_checksums,
-                fill_cache=fill_cache)
+                fill_cache=fill_cache, prefix=prefix)
 
     def __iter__(self):
         dbiter = Iter(self)
