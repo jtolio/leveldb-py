@@ -146,7 +146,7 @@ def _checkError(error):
         raise Error(message)
 
 
-class DBIter(object):
+class Iter(object):
     """A wrapper around leveldb iterators. Can work like an idiomatic Python
     iterator, or can give you more control.
     """
@@ -183,7 +183,7 @@ class DBIter(object):
         Jump to first key in database
 
         @return: self
-        @rtype: DBIter
+        @rtype: Iter
         """
         assert self._iterator
         _ldb.leveldb_iter_seek_to_first(self._iterator)
@@ -194,7 +194,7 @@ class DBIter(object):
         Jump to last key in database
 
         @return: self
-        @rtype: DBIter
+        @rtype: Iter
         """
         assert self._iterator
         _ldb.leveldb_iter_seek_to_last(self._iterator)
@@ -208,7 +208,7 @@ class DBIter(object):
         @type key: str
 
         @return: self
-        @rtype: DBIter
+        @rtype: Iter
         """
         assert self._iterator
         _ldb.leveldb_iter_seek(self._iterator, key, len(key))
@@ -389,10 +389,10 @@ class DB(object):
         _checkError(error)
 
     def iterator(self, verify_checksums=False, fill_cache=True):
-        return DBIter(self, verify_checksums=verify_checksums,
+        return Iter(self, verify_checksums=verify_checksums,
                 fill_cache=fill_cache)
 
     def __iter__(self):
-        dbiter = DBIter(self)
+        dbiter = Iter(self)
         dbiter.seekFirst()
         return dbiter
