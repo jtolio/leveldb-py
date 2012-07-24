@@ -305,28 +305,56 @@ class Iter(object):
 class WriteBatch(object):
 
     def __init__(self):
-        self._batch = _ldb.leveldb_writebatch_create()
-
-    def __del__(self):
-        _ldb.leveldb_writebatch_destroy(self._batch)
+        self._puts = {}
+        self._deletes = set()
 
     def put(self, key, val):
-        _ldb.leveldb_writebatch_put(self._batch, key, len(key), val, len(val))
+        self._deletes.discard(key)
+        self._puts[key] = val
 
     def delete(self, key):
-        _ldb.leveldb_writebatch_delete(self._batch, key, len(key))
+        self._puts.pop(key, None)
+        self._deletes.add(key)
 
     def clear(self):
-        _ldb.leveldb_writebatch_clear(self._batch)
+        self._puts = {}
+        self.deletes = set()
 
 
-class DB(object):
+class DBInterface(object):
+
+    def close(self):
+        raise NotImplementedError()
+
+    def put(self, key, val, sync=False):
+        raise NotImplementedError()
+
+    def delete(self, key, sync=False):
+        raise NotImplementedError()
+
+    def get(self, key, verify_checksums=False, fill_cache=True):
+        raise NotImplementedError()
+
+    def write(self, batch, sync=False):
+        raise NotImplementedError()
+
+    def iterator(self, verify_checksums=False, fill_cache=True, prefix=None):
+        raise NotImplementedError()
+
+    def __iter__(self):
+        raise NotImplementedError()
+
+    def scope(self, prefix):
+        raise NotImplementedError()
+
+
+class DB(DBInterface):
 
     def __init__(self, path, bloom_filter_size=10, create_if_missing=False,
             error_if_exists=False, paranoid_checks=False,
             write_buffer_size=(4*1024*1024), max_open_files=1000,
             block_cache_size=(8*1024*1024), block_size=(4*1024)):
-
+        DBInterface.__init__(self)
         self._filter_policy = _ldb.leveldb_filterpolicy_create_bloom(
                 bloom_filter_size)
         self._cache = _ldb.leveldb_cache_create_lru(block_cache_size)
@@ -404,12 +432,19 @@ class DB(object):
         return val
 
     def write(self, batch, sync=False):
+        real_batch = _ldb.leveldb_writebatch_create()
+        for key, val in batch._puts.iteritems():
+            _ldb.leveldb_writebatch_put(real_batch, key, len(key), val,
+                    len(val))
+        for key in batch._deletes:
+            _ldb.leveldb_writebatch_delete(real_batch, key, len(key))
         error = ctypes.POINTER(ctypes.c_char)()
         options = _ldb.leveldb_writeoptions_create()
         _ldb.leveldb_writeoptions_set_sync(options, sync)
-        _ldb.leveldb_write(self._db, options, batch._batch,
+        _ldb.leveldb_write(self._db, options, real_batch,
                 ctypes.byref(error))
         _ldb.leveldb_writeoptions_destroy(options)
+        _ldb.leveldb_writebatch_destroy(real_batch)
         _checkError(error)
 
     def iterator(self, verify_checksums=False, fill_cache=True, prefix=None):
@@ -417,6 +452,50 @@ class DB(object):
                 fill_cache=fill_cache, prefix=prefix)
 
     def __iter__(self):
-        dbiter = Iter(self)
-        dbiter.seekFirst()
-        return dbiter
+        return Iter(self).seekFirst()
+
+    def scope(self, prefix, allow_close=False):
+        return ScopedDB(self, prefix, allow_close=allow_close)
+
+
+class ScopedDB(DBInterface):
+
+    def __init__(self, db, prefix, allow_close=False):
+        self._db = db
+        self._prefix = prefix
+        self._allow_close = allow_close
+
+    def close(self):
+        if self.allow_close:
+            self._db.close()
+
+    def put(self, key, *args, **kwargs):
+        self._db.put(self._prefix + key, *args, **kwargs)
+
+    def delete(self, key, *args, **kwargs):
+        self._db.delete(self._prefix + key, *args, **kwargs)
+
+    def get(self, key, *args, **kwargs):
+        return self._db.get(self._prefix + key, *args, **kwargs)
+
+    def write(self, batch, *args, **kwargs):
+        unscoped_batch = WriteBatch()
+        for key, value in batch._puts.iteritems():
+            unscoped_batch._puts[self._prefix + key] = value
+        for key in batch._deletes:
+            unscoped_batch._deletes.add(self._prefix + key)
+        self._db.write(unscoped_batch, *args, **kwargs)
+
+    def iterator(self, verify_checksums=False, fill_cache=True, prefix=None):
+        if prefix is None:
+            prefix = self._prefix
+        else:
+            prefix = self._prefix + prefix
+        return Iter(self._db, verify_checksums=verify_checksums,
+                fill_cache=fill_cache, prefix=prefix)
+
+    def __iter__(self):
+        return Iter(self._db, prefix=self._prefix).seekFirst()
+
+    def scope(self, prefix):
+        return self._db.scope(self._prefix + prefix)
