@@ -120,16 +120,40 @@ class LevelDBTestCases(unittest.TestCase):
         self.assertTrue(sync_time > 10 * unsync_time)
         db.close()
 
+    def testRange(self):
+        db = leveldb.DB(self.db_path, create_if_missing=True)
 
-class ScopedDBTestCase(unittest.TestCase):
+        def keys(alphabet, length=5):
+            if length == 0:
+                yield ""
+                return
+            for char in alphabet:
+                for prefix in keys(alphabet, length - 1):
+                    yield prefix + char
 
-    def setUp(self):
-        self.db_path = tempfile.mkdtemp()
+        for val, key in enumerate(keys(map(chr, xrange(ord('a'), ord('f'))))):
+            db.put(key, str(val))
 
-    def tearDown(self):
-        shutil.rmtree(self.db_path, ignore_errors=True)
+        self.assertEquals([row.key for row in db.range("bbbb", "bbcb")],
+            ['bbbba', 'bbbbb', 'bbbbc', 'bbbbd', 'bbbbe', 'bbbca', 'bbbcb',
+             'bbbcc', 'bbbcd', 'bbbce', 'bbbda', 'bbbdb', 'bbbdc', 'bbbdd',
+             'bbbde', 'bbbea', 'bbbeb', 'bbbec', 'bbbed', 'bbbee', 'bbcaa',
+             'bbcab', 'bbcac', 'bbcad', 'bbcae'])
+        self.assertEquals([row.key for row in db.range("bbbbb", "bbcbb")],
+            ['bbbbb', 'bbbbc', 'bbbbd', 'bbbbe', 'bbbca', 'bbbcb', 'bbbcc',
+             'bbbcd', 'bbbce', 'bbbda', 'bbbdb', 'bbbdc', 'bbbdd', 'bbbde',
+             'bbbea', 'bbbeb', 'bbbec', 'bbbed', 'bbbee', 'bbcaa', 'bbcab',
+             'bbcac', 'bbcad', 'bbcae', 'bbcba'])
+        self.assertEquals([r.key for r in db.scope("dd").range("bb", "cb")],
+            ['bba', 'bbb', 'bbc', 'bbd', 'bbe', 'bca', 'bcb', 'bcc', 'bcd',
+             'bce', 'bda', 'bdb', 'bdc', 'bdd', 'bde', 'bea', 'beb', 'bec',
+             'bed', 'bee', 'caa', 'cab', 'cac', 'cad', 'cae'])
+        self.assertEquals([r.key for r in db.scope("dd").range("bbb", "cbb")],
+            ['bbb', 'bbc', 'bbd', 'bbe', 'bca', 'bcb', 'bcc', 'bcd', 'bce',
+             'bda', 'bdb', 'bdc', 'bdd', 'bde', 'bea', 'beb', 'bec', 'bed',
+             'bee', 'caa', 'cab', 'cac', 'cad', 'cae', 'cba'])
 
-    def testInclusive(self, use_writebatch=False):
+    def testScopedDB(self, use_writebatch=False):
         db = leveldb.DB(self.db_path, create_if_missing=True)
         scoped_db_1 = db.scope("prefix1_")
         scoped_db_2 = db.scope("prefix2_")
@@ -195,8 +219,9 @@ class ScopedDBTestCase(unittest.TestCase):
         self.assertEquals(scoped_db_3.get("11"), None)
         self.assertEqual(scoped_db_2a.get("13"), None)
 
-    def testInclusive_WriteBatch(self):
-        self.testInclusive(use_writebatch=True)
+    def testScopedDB_WriteBatch(self):
+        self.testScopedDB(use_writebatch=True)
+
 
 def main():
     parser = argparse.ArgumentParser("run tests")

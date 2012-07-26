@@ -301,6 +301,14 @@ class Iter(object):
         assert self._iterator
         _ldb.leveldb_iter_prev(self._iterator)
 
+    def range(self, start_key, end_key):
+        """A generator for some range of rows"""
+        self.seek(start_key)
+        for row in self:
+            if row.key >= end_key:
+                break
+            yield row
+
 
 class WriteBatch(object):
 
@@ -346,6 +354,11 @@ class DBInterface(object):
 
     def scope(self, prefix):
         raise NotImplementedError()
+
+    def range(self, start_key, end_key, verify_checksums=False,
+            fill_cache=True):
+        return self.iterator(verify_checksums=verify_checksums,
+                fill_cache=fill_cache).range(start_key, end_key)
 
 
 class DB(DBInterface):
