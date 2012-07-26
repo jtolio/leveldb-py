@@ -301,11 +301,16 @@ class Iter(object):
         assert self._iterator
         _ldb.leveldb_iter_prev(self._iterator)
 
-    def range(self, start_key, end_key):
+    def range(self, start_key=None, end_key=None, start_inclusive=True,
+            end_inclusive=False):
         """A generator for some range of rows"""
-        self.seek(start_key)
+        if start_key is not None:
+            self.seek(start_key)
+            if not start_inclusive and self.key() == start_key:
+                self.seek(start_key)
         for row in self:
-            if row.key >= end_key:
+            if end_key is not None and (row.key > end_key or (
+                    not end_inclusive and row.key == end_key)):
                 break
             yield row
 
@@ -355,10 +360,12 @@ class DBInterface(object):
     def scope(self, prefix):
         raise NotImplementedError()
 
-    def range(self, start_key, end_key, verify_checksums=False,
-            fill_cache=True):
+    def range(self, start_key=None, end_key=None, start_inclusive=True,
+            end_inclusive=False, verify_checksums=False, fill_cache=True):
         return self.iterator(verify_checksums=verify_checksums,
-                fill_cache=fill_cache).range(start_key, end_key)
+                fill_cache=fill_cache).range(start_key=start_key,
+                        end_key=end_key, start_inclusive=start_inclusive,
+                        end_inclusive=end_inclusive)
 
 
 class DB(DBInterface):
