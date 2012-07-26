@@ -153,6 +153,77 @@ class LevelDBTestCases(unittest.TestCase):
              'bda', 'bdb', 'bdc', 'bdd', 'bde', 'bea', 'beb', 'bec', 'bed',
              'bee', 'caa', 'cab', 'cac', 'cad', 'cae', 'cba'])
 
+    def testRangeOptionalEndpoints(self):
+        db = leveldb.DB(self.db_path, create_if_missing=True)
+        db.put("aa", "1")
+        db.put("bb", "2")
+        db.put("cc", "3")
+        db.put("dd", "4")
+        db.put("ee", "5")
+
+        self.assertEquals([r.key for r in db.iterator().seek("d").range()],
+                ["aa", "bb", "cc", "dd", "ee"])
+        self.assertEquals([r.key for r in db.iterator().seek("d").range(
+                start_key="bb")], ["bb", "cc", "dd", "ee"])
+        self.assertEquals([r.key for r in db.iterator().seek("d").range(
+                end_key="cc")], ["aa", "bb"])
+        self.assertEquals([r.key for r in db.iterator().seek("d").range(
+                start_key="bb", end_key="cc")], ["bb"])
+        self.assertEquals([r.key for r in db.iterator().seek("d").range(
+                start_key="b")], ["bb", "cc", "dd", "ee"])
+        self.assertEquals([r.key for r in db.iterator().seek("d").range(
+                end_key="c")], ["aa", "bb"])
+        self.assertEquals([r.key for r in db.iterator().seek("d").range(
+                start_key="b", end_key="c")], ["bb"])
+
+        self.assertEquals([r.key for r in db.iterator().seek("d").range(
+                start_key="bb", start_inclusive=True)],
+                ["bb", "cc", "dd", "ee"])
+        self.assertEquals([r.key for r in db.iterator().seek("d").range(
+                start_key="bb", start_inclusive=False)],
+                ["cc", "dd", "ee"])
+
+        self.assertEquals([r.key for r in db.iterator().seek("d").range(
+                end_key="cc", end_inclusive=True)], ["aa", "bb", "cc"])
+        self.assertEquals([r.key for r in db.iterator().seek("d").range(
+                end_key="cc", end_inclusive=False)], ["aa", "bb"])
+
+        self.assertEquals([r.key for r in db.iterator().seek("d").range(
+                start_key="bb", end_key="cc", start_inclusive=True,
+                end_inclusive=True)], ["bb", "cc"])
+        self.assertEquals([r.key for r in db.iterator().seek("d").range(
+                start_key="bb", end_key="cc", start_inclusive=True,
+                end_inclusive=False)], ["bb"])
+        self.assertEquals([r.key for r in db.iterator().seek("d").range(
+                start_key="bb", end_key="cc", start_inclusive=False,
+                end_inclusive=True)], ["cc"])
+        self.assertEquals([r.key for r in db.iterator().seek("d").range(
+                start_key="bb", end_key="cc", start_inclusive=False,
+                end_inclusive=False)], [])
+
+        self.assertEquals([r.key for r in db.iterator().seek("d").range(
+                start_key="b", start_inclusive=True)],
+                ["bb", "cc", "dd", "ee"])
+        self.assertEquals([r.key for r in db.iterator().seek("d").range(
+                start_key="b", start_inclusive=False)],
+                ["bb", "cc", "dd", "ee"])
+        self.assertEquals([r.key for r in db.iterator().seek("d").range(
+                end_key="c", end_inclusive=True)], ["aa", "bb"])
+        self.assertEquals([r.key for r in db.iterator().seek("d").range(
+                end_key="c", end_inclusive=False)], ["aa", "bb"])
+        self.assertEquals([r.key for r in db.iterator().seek("d").range(
+                start_key="b", end_key="c", start_inclusive=True,
+                end_inclusive=True)], ["bb"])
+        self.assertEquals([r.key for r in db.iterator().seek("d").range(
+                start_key="b", end_key="c", start_inclusive=False,
+                end_inclusive=True)], ["bb"])
+        self.assertEquals([r.key for r in db.iterator().seek("d").range(
+                start_key="b", end_key="c", start_inclusive=True,
+                end_inclusive=False)], ["bb"])
+        self.assertEquals([r.key for r in db.iterator().seek("d").range(
+                start_key="b", end_key="c", start_inclusive=False,
+                end_inclusive=False)], ["bb"])
+
     def testScopedDB(self, use_writebatch=False):
         db = leveldb.DB(self.db_path, create_if_missing=True)
         scoped_db_1 = db.scope("prefix1_")

@@ -307,7 +307,9 @@ class Iter(object):
         if start_key is not None:
             self.seek(start_key)
             if not start_inclusive and self.key() == start_key:
-                self.seek(start_key)
+                self.stepForward()
+        else:
+            self.seekFirst()
         for row in self:
             if end_key is not None and (row.key > end_key or (
                     not end_inclusive and row.key == end_key)):
