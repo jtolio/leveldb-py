@@ -119,6 +119,7 @@ _ldb.leveldb_iter_seek_to_first.argtypes = [ctypes.c_void_p]
 _ldb.leveldb_iter_seek_to_last.argtypes = [ctypes.c_void_p]
 _ldb.leveldb_iter_seek.argtypes = [ctypes.c_void_p, ctypes.c_char_p,
         ctypes.c_size_t]
+_ldb.leveldb_iter_get_error.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
 
 _ldb.leveldb_writebatch_create.argtypes = []
 _ldb.leveldb_writebatch_create.restype = ctypes.c_void_p
@@ -202,6 +203,7 @@ class Iter(object):
                     len(self._prefix))
         else:
             _ldb.leveldb_iter_seek_to_first(self._iterator)
+        self._checkError()
         return self
 
     def seekLast(self):
@@ -215,6 +217,7 @@ class Iter(object):
         if self._prefix is not None:
             raise Exception("seekLast not supported with prefix iterators")
         _ldb.leveldb_iter_seek_to_last(self._iterator)
+        self._checkError()
         return self
 
     def seek(self, key):
@@ -231,6 +234,7 @@ class Iter(object):
         if self._prefix is not None:
             key = self._prefix + key
         _ldb.leveldb_iter_seek(self._iterator, key, len(key))
+        self._checkError()
         return self
 
     def key(self):
@@ -295,11 +299,13 @@ class Iter(object):
         """Same as next but does not return any data or check for validity"""
         assert self._iterator
         _ldb.leveldb_iter_next(self._iterator)
+        self._checkError()
 
     def stepBackward(self):
         """Same as prev but does not return any data or check for validity"""
         assert self._iterator
         _ldb.leveldb_iter_prev(self._iterator)
+        self._checkError()
 
     def range(self, start_key=None, end_key=None, start_inclusive=True,
             end_inclusive=False):
@@ -315,6 +321,11 @@ class Iter(object):
                     not end_inclusive and row.key == end_key)):
                 break
             yield row
+
+    def _checkError(self):
+        error = ctypes.POINTER(ctypes.c_char)()
+        _ldb.leveldb_iter_get_error(self._iterator, ctypes.byref(error))
+        _checkError(error)
 
 
 class WriteBatch(object):
