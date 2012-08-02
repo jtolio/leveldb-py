@@ -214,9 +214,26 @@ class Iter(object):
         @rtype: Iter
         """
         assert self._iterator
-        if self._prefix is not None:
-            raise Exception("seekLast not supported with prefix iterators")
-        _ldb.leveldb_iter_seek_to_last(self._iterator)
+
+        # if we have no prefix or the last possible prefix of this length, just
+        # seek to the last key in the db.
+        if self._prefix is None or self._prefix == "\xff" * len(self._prefix):
+            _ldb.leveldb_iter_seek_to_last(self._iterator)
+            self._checkError()
+            return self
+
+        # we have a prefix. see if there's anything after our prefix.
+        # there's probably a much better way to calculate the next prefix.
+        next_prefix = hex(long(self._prefix.encode('hex'), 16) + 1
+                )[2:].rstrip("L").decode('hex')
+        _ldb.leveldb_iter_seek(self._iterator, next_prefix, len(next_prefix))
+        self._checkError()
+        if _ldb.leveldb_iter_valid(self._iterator):
+            # there is something after our prefix. we're on it, so step back
+            _ldb.leveldb_iter_prev(self._iterator)
+        else:
+            # there is nothing after our prefix, just seek to the last key
+            _ldb.leveldb_iter_seek_to_last(self._iterator)
         self._checkError()
         return self
 

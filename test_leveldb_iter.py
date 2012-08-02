@@ -35,51 +35,56 @@ class LevelDBIteratorTest(unittest.TestCase):
     """Test that leveldb is iterable."""
 
     def setUp(self):
-        self.dir = tempfile.mkdtemp()
-        self.db = leveldb.DB(os.path.join(self.dir, "db"),
-                create_if_missing=True, error_if_exists=True)
+        self.db_path = tempfile.mkdtemp()
 
     def tearDown(self):
-        self.db.close()
-        shutil.rmtree(self.dir)
+        shutil.rmtree(self.db_path)
 
     def test_iteration(self):
-        self.db.put('a', 'b')
-        self.db.put('c', 'd')
-        iterator = iter(self.db)
+        db = leveldb.DB(self.db_path, create_if_missing=True)
+        db.put('a', 'b')
+        db.put('c', 'd')
+        iterator = iter(db)
         self.assertEqual(iterator.next(), ('a', 'b'))
         self.assertEqual(iterator.next(), ('c', 'd'))
         self.assertRaises(StopIteration, iterator.next)
+        db.close()
 
     def test_iteration_with_break(self):
-        self.db.put('a', 'b')
-        self.db.put('c', 'd')
-        for key, value in self.db:
+        db = leveldb.DB(self.db_path, create_if_missing=True)
+        db.put('a', 'b')
+        db.put('c', 'd')
+        for key, value in db:
             self.assertEqual((key, value), ('a', 'b'))
             break
+        db.close()
 
     def test_iteration_empty_db(self):
         """
         Test the null condition, no entries in the database.
         """
-        for _ in self.db:
+        db = leveldb.DB(self.db_path, create_if_missing=True)
+        for _ in db:
             self.fail("shouldn't happen")
+        db.close()
 
     def test_seek(self):
         """
         Test seeking forwards and backwards
         """
-        self.db.put('a', 'b')
-        self.db.put('b', 'b')
-        self.db.put('ca', 'a')
-        self.db.put('cb', 'b')
-        self.db.put('d', 'd')
-        iterator = iter(self.db).seek("c")
+        db = leveldb.DB(self.db_path, create_if_missing=True)
+        db.put('a', 'b')
+        db.put('b', 'b')
+        db.put('ca', 'a')
+        db.put('cb', 'b')
+        db.put('d', 'd')
+        iterator = iter(db).seek("c")
         self.assertEqual(iterator.next(), ('ca', 'a'))
         self.assertEqual(iterator.next(), ('cb', 'b'))
         # seek backwards
         iterator.seek('a')
         self.assertEqual(iterator.next(), ('a', 'b'))
+        db.close()
 
     def test_prefix(self):
         """
@@ -92,47 +97,136 @@ class LevelDBIteratorTest(unittest.TestCase):
         batch.put('ce', 'a')
         batch.put('c', 'a')
         batch.put('f', 'b')
-        self.db.write(batch)
-        iterator = self.db.iterator(prefix="c")
+        db = leveldb.DB(self.db_path, create_if_missing=True)
+        db.write(batch)
+        iterator = db.iterator(prefix="c")
         iterator.seekFirst()
         self.assertEqual(iterator.next(), ('', 'a'))
         self.assertEqual(iterator.next(), ('d', 'a'))
         self.assertEqual(iterator.next(), ('e', 'a'))
         self.assertRaises(StopIteration, iterator.next)
+        db.close()
 
     def test_multiple_iterators(self):
         """
         Make sure that things work with multiple iterator objects
         alive at one time.
         """
+        db = leveldb.DB(self.db_path, create_if_missing=True)
         entries = [('a', 'b'), ('b', 'b')]
-        self.db.put(*entries[0])
-        self.db.put(*entries[1])
-        iter1 = iter(self.db)
-        iter2 = iter(self.db)
+        db.put(*entries[0])
+        db.put(*entries[1])
+        iter1 = iter(db)
+        iter2 = iter(db)
         self.assertEqual(iter1.next(), entries[0])
         # garbage collect iter1, seek iter2 past the end of the db. Make sure
         # everything works.
         del iter1
         iter2.seek('z')
         self.assertRaises(StopIteration, iter2.next)
+        db.close()
 
     def test_prev(self):
-        self.db.put('a', 'b')
-        self.db.put('b', 'b')
-        iterator = iter(self.db)
+        db = leveldb.DB(self.db_path, create_if_missing=True)
+        db.put('a', 'b')
+        db.put('b', 'b')
+        iterator = iter(db)
         entry = iterator.next()
         iterator.prev()
         self.assertEqual(entry, iterator.next())
         # it's ok to call prev when the iterator is at position 0
         iterator.prev()
         self.assertEqual(entry, iterator.next())
+        db.close()
 
     def test_seek_first_last(self):
-        self.db.put('a', 'b')
-        self.db.put('b', 'b')
-        iterator = iter(self.db)
+        db = leveldb.DB(self.db_path, create_if_missing=True)
+        db.put('a', 'b')
+        db.put('b', 'b')
+        iterator = iter(db)
         iterator.seekLast()
         self.assertEqual(iterator.next(), ('b', 'b'))
         iterator.seekFirst()
         self.assertEqual(iterator.next(), ('a', 'b'))
+        db.close()
+
+    def test_scoped_seek_first(self):
+        db = leveldb.DB(os.path.join(self.db_path, "1"),
+                create_if_missing=True)
+        db.put("ba", "1")
+        db.put("bb", "2")
+        db.put("cc", "3")
+        db.put("cd", "4")
+        db.put("de", "5")
+        db.put("df", "6")
+        it = db.scope("a").iterator().seekFirst()
+        self.assertFalse(it.valid())
+        it = db.scope("b").iterator().seekFirst()
+        self.assertTrue(it.valid())
+        self.assertEqual(it.key(), "a")
+        it = db.scope("c").iterator().seekFirst()
+        self.assertTrue(it.valid())
+        self.assertEqual(it.key(), "c")
+        it = db.scope("d").iterator().seekFirst()
+        self.assertTrue(it.valid())
+        self.assertEqual(it.key(), "e")
+        it = db.scope("e").iterator().seekFirst()
+        self.assertFalse(it.valid())
+        db.close()
+
+    def test_scoped_seek_last(self):
+        db = leveldb.DB(os.path.join(self.db_path, "1"),
+                create_if_missing=True)
+        db.put("ba", "1")
+        db.put("bb", "2")
+        db.put("cc", "3")
+        db.put("cd", "4")
+        db.put("de", "5")
+        db.put("df", "6")
+        it = db.scope("a").iterator().seekLast()
+        self.assertFalse(it.valid())
+        it = db.scope("b").iterator().seekLast()
+        self.assertTrue(it.valid())
+        self.assertEqual(it.key(), "b")
+        it = db.scope("c").iterator().seekLast()
+        self.assertTrue(it.valid())
+        self.assertEqual(it.key(), "d")
+        it = db.scope("d").iterator().seekLast()
+        self.assertTrue(it.valid())
+        self.assertEqual(it.key(), "f")
+        it = db.scope("e").iterator().seekLast()
+        self.assertFalse(it.valid())
+        db.close()
+        db = leveldb.DB(os.path.join(self.db_path, "2"),
+                create_if_missing=True)
+        db.put("\xff\xff\xffab", "1")
+        db.put("\xff\xff\xffcd", "2")
+        it = db.scope("\xff\xff\xff").iterator().seekLast()
+        self.assertTrue(it.valid())
+        self.assertEqual(it.key(), "cd")
+        db.close()
+        db = leveldb.DB(os.path.join(self.db_path, "3"),
+                create_if_missing=True)
+        db.put("\xff\xff\xfeab", "1")
+        db.put("\xff\xff\xfecd", "2")
+        it = db.scope("\xff\xff\xff").iterator().seekLast()
+        self.assertFalse(it.valid())
+        db.close()
+        db = leveldb.DB(os.path.join(self.db_path, "4"),
+                create_if_missing=True)
+        db.put("\xff\xff\xfeab", "1")
+        db.put("\xff\xff\xfecd", "2")
+        it = db.scope("\xff\xff\xfe").iterator().seekLast()
+        self.assertTrue(it.valid())
+        self.assertEqual(it.key(), "cd")
+        db.close()
+        db = leveldb.DB(os.path.join(self.db_path, "5"),
+                create_if_missing=True)
+        db.put("\xff\xff\xfeab", "1")
+        db.put("\xff\xff\xfecd", "2")
+        db.put("\xff\xff\xffef", "1")
+        db.put("\xff\xff\xffgh", "2")
+        it = db.scope("\xff\xff\xfe").iterator().seekLast()
+        self.assertTrue(it.valid())
+        self.assertEqual(it.key(), "cd")
+        db.close()
