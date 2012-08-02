@@ -289,10 +289,33 @@ class LevelDBTestCases(unittest.TestCase):
         self.assertEquals(scoped_db_2b.get("9"), None)
         self.assertEquals(scoped_db_3.get("11"), None)
         self.assertEqual(scoped_db_2a.get("13"), None)
+        db.close()
 
     def testScopedDB_WriteBatch(self):
         self.testScopedDB(use_writebatch=True)
 
+    def testKeysWithZeroBytes(self):
+        db = leveldb.DB(self.db_path, create_if_missing=True)
+        key_with_zero_byte = ("\x01\x00\x02\x03\x04")
+        db.put(key_with_zero_byte, "hey")
+        self.assertEqual(db.get(key_with_zero_byte), "hey")
+        it = db.iterator().seekFirst()
+        self.assertTrue(it.valid())
+        self.assertEqual(it.value(), "hey")
+        self.assertEqual(it.key(), key_with_zero_byte)
+        self.assertEqual(db.get(it.key()), "hey")
+        db.close()
+
+    def testValuesWithZeroBytes(self):
+        db = leveldb.DB(self.db_path, create_if_missing=True)
+        value_with_zero_byte = ("\x01\x00\x02\x03\x04")
+        db.put("hey", value_with_zero_byte)
+        self.assertEqual(db.get("hey"), value_with_zero_byte)
+        it = db.iterator().seekFirst()
+        self.assertTrue(it.valid())
+        self.assertEqual(it.key(), "hey")
+        self.assertEqual(it.value(), value_with_zero_byte)
+        db.close()
 
 def main():
     parser = argparse.ArgumentParser("run tests")

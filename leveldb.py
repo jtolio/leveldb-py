@@ -80,12 +80,12 @@ _ldb.leveldb_open.argtypes = [ctypes.c_void_p, ctypes.c_char_p,
 _ldb.leveldb_open.restype = ctypes.c_void_p
 _ldb.leveldb_close.argtypes = [ctypes.c_void_p]
 _ldb.leveldb_put.argtypes = [ctypes.c_void_p, ctypes.c_void_p,
-        ctypes.c_char_p, ctypes.c_size_t, ctypes.c_char_p, ctypes.c_size_t,
+        ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t,
         ctypes.c_void_p]
 _ldb.leveldb_delete.argtypes = [ctypes.c_void_p, ctypes.c_void_p,
-        ctypes.c_char_p, ctypes.c_size_t, ctypes.c_void_p]
+        ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p]
 _ldb.leveldb_get.argtypes = [ctypes.c_void_p, ctypes.c_void_p,
-        ctypes.c_char_p, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_void_p]
+        ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_void_p]
 _ldb.leveldb_get.restype = ctypes.POINTER(ctypes.c_char)
 
 _ldb.leveldb_writeoptions_create.argtypes = []
@@ -109,15 +109,15 @@ _ldb.leveldb_iter_valid.argtypes = [ctypes.c_void_p]
 _ldb.leveldb_iter_valid.restype = ctypes.c_bool
 _ldb.leveldb_iter_key.argtypes = [ctypes.c_void_p,
         ctypes.POINTER(ctypes.c_size_t)]
-_ldb.leveldb_iter_key.restype = ctypes.c_char_p
+_ldb.leveldb_iter_key.restype = ctypes.c_void_p
 _ldb.leveldb_iter_value.argtypes = [ctypes.c_void_p,
         ctypes.POINTER(ctypes.c_size_t)]
-_ldb.leveldb_iter_value.restype = ctypes.c_char_p
+_ldb.leveldb_iter_value.restype = ctypes.c_void_p
 _ldb.leveldb_iter_next.argtypes = [ctypes.c_void_p]
 _ldb.leveldb_iter_prev.argtypes = [ctypes.c_void_p]
 _ldb.leveldb_iter_seek_to_first.argtypes = [ctypes.c_void_p]
 _ldb.leveldb_iter_seek_to_last.argtypes = [ctypes.c_void_p]
-_ldb.leveldb_iter_seek.argtypes = [ctypes.c_void_p, ctypes.c_char_p,
+_ldb.leveldb_iter_seek.argtypes = [ctypes.c_void_p, ctypes.c_void_p,
         ctypes.c_size_t]
 _ldb.leveldb_iter_get_error.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
 
@@ -126,12 +126,13 @@ _ldb.leveldb_writebatch_create.restype = ctypes.c_void_p
 _ldb.leveldb_writebatch_destroy.argtypes = [ctypes.c_void_p]
 _ldb.leveldb_writebatch_clear.argtypes = [ctypes.c_void_p]
 
-_ldb.leveldb_writebatch_put.argtypes = [ctypes.c_void_p, ctypes.c_char_p,
-        ctypes.c_size_t, ctypes.c_char_p, ctypes.c_size_t]
-_ldb.leveldb_writebatch_delete.argtypes = [ctypes.c_void_p, ctypes.c_char_p,
+_ldb.leveldb_writebatch_put.argtypes = [ctypes.c_void_p, ctypes.c_void_p,
+        ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t]
+_ldb.leveldb_writebatch_delete.argtypes = [ctypes.c_void_p, ctypes.c_void_p,
         ctypes.c_size_t]
 
 _libc.free.argtypes = [ctypes.c_void_p]
+_libc.memcpy.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t]
 
 
 Row = namedtuple('Row', 'key value')
@@ -187,8 +188,8 @@ class Iter(object):
         length = ctypes.c_size_t(0)
         val_p = _ldb.leveldb_iter_key(self._iterator, ctypes.byref(length))
         assert bool(val_p)
-        return (ctypes.string_at(val_p, length.value)[:len(self._prefix)] ==
-                self._prefix)
+        return (ctypes.string_at(val_p, min(length.value, len(self._prefix)))
+                == self._prefix)
 
     def seekFirst(self):
         """
