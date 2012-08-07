@@ -226,7 +226,10 @@ class Iter(object):
         # we have a prefix. see if there's anything after our prefix.
         # there's probably a much better way to calculate the next prefix.
         next_prefix = hex(long(self._prefix.encode('hex'), 16) + 1
-                )[2:].rstrip("L").decode('hex')
+                )[2:].rstrip("L")
+        if len(next_prefix) % 2 != 0:
+            next_prefix = "0" + next_prefix
+        next_prefix = next_prefix.decode("hex")
         _ldb.leveldb_iter_seek(self._iterator, next_prefix, len(next_prefix))
         self._checkError()
         if _ldb.leveldb_iter_valid(self._iterator):

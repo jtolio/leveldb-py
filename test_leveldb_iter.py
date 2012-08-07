@@ -230,3 +230,13 @@ class LevelDBIteratorTest(unittest.TestCase):
         self.assertTrue(it.valid())
         self.assertEqual(it.key(), "cd")
         db.close()
+        db = leveldb.DB(os.path.join(self.db_path, "6"),
+                create_if_missing=True)
+        db.put("\x0f\xff\xfeab", "1")
+        db.put("\x0f\xff\xfecd", "2")
+        db.put("\x0f\xff\xffef", "1")
+        db.put("\x0f\xff\xffgh", "2")
+        it = db.scope("\x0f\xff\xfe").iterator().seekLast()
+        self.assertTrue(it.valid())
+        self.assertEqual(it.key(), "cd")
+        db.close()
