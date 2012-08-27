@@ -21,9 +21,7 @@
 # SOFTWARE.
 #
 
-__author__ = "JT Olds"
-__email__ = "jt@spacemonkey.com"
-
+import os
 import sys
 import time
 import shutil
@@ -33,7 +31,9 @@ import tempfile
 import unittest
 
 
-class LevelDBTestCases(unittest.TestCase):
+class LevelDBTestCasesMixIn(object):
+
+    db_class = None
 
     def setUp(self):
         self.db_path = tempfile.mkdtemp()
@@ -41,16 +41,8 @@ class LevelDBTestCases(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.db_path, ignore_errors=True)
 
-    def testInit(self):
-        self.assertRaises(leveldb.Error, leveldb.DB, self.db_path)
-        leveldb.DB(self.db_path, create_if_missing=True).close()
-        leveldb.DB(self.db_path, create_if_missing=True).close()
-        leveldb.DB(self.db_path).close()
-        self.assertRaises(leveldb.Error, leveldb.DB, self.db_path,
-                create_if_missing=True, error_if_exists=True)
-
     def testPutGet(self):
-        db = leveldb.DB(self.db_path, create_if_missing=True)
+        db = self.db_class(self.db_path, create_if_missing=True)
         db.put("key1", "val1")
         db.put("key2", "val2", sync=True)
         self.assertEqual(db.get("key1"), "val1")
@@ -68,7 +60,7 @@ class LevelDBTestCases(unittest.TestCase):
         db.close()
 
     def testDelete(self):
-        db = leveldb.DB(self.db_path, create_if_missing=True)
+        db = self.db_class(self.db_path, create_if_missing=True)
         self.assertTrue(db.get("key1") is None)
         self.assertTrue(db.get("key2") is None)
         self.assertTrue(db.get("key3") is None)
@@ -85,43 +77,8 @@ class LevelDBTestCases(unittest.TestCase):
         self.assertEqual(db.get("key3"), "val3")
         db.close()
 
-    def testPutSync(self, size=100):
-        db = leveldb.DB(self.db_path, create_if_missing=True)
-        for i in xrange(size):
-            db.put(str(i), str(i + 1))
-        start_sync_time = time.time()
-        for i in xrange(size):
-            db.put(str(i), str(i + 1), sync=True)
-        start_unsync_time = time.time()
-        for i in xrange(size):
-            db.put(str(i), str(i + 1))
-        end_time = time.time()
-        sync_time = start_unsync_time - start_sync_time
-        unsync_time = end_time - start_unsync_time
-        self.assertTrue(sync_time > 10 * unsync_time)
-        db.close()
-
-    def testDeleteSync(self, size=100):
-        db = leveldb.DB(self.db_path, create_if_missing=True)
-        for i in xrange(size):
-            db.put(str(i), str(i + 1))
-        start_sync_time = time.time()
-        for i in xrange(size):
-            db.delete(str(i), sync=True)
-        end_sync_time = time.time()
-        for i in xrange(size):
-            db.put(str(i), str(i + 1))
-        start_unsync_time = time.time()
-        for i in xrange(size):
-            db.delete(str(i))
-        end_unsync_time = time.time()
-        sync_time = end_sync_time - start_sync_time
-        unsync_time = end_unsync_time - start_unsync_time
-        self.assertTrue(sync_time > 10 * unsync_time)
-        db.close()
-
     def testRange(self):
-        db = leveldb.DB(self.db_path, create_if_missing=True)
+        db = self.db_class(self.db_path, create_if_missing=True)
 
         def keys(alphabet, length=5):
             if length == 0:
@@ -154,7 +111,7 @@ class LevelDBTestCases(unittest.TestCase):
              'bee', 'caa', 'cab', 'cac', 'cad', 'cae', 'cba'])
 
     def testRangeOptionalEndpoints(self):
-        db = leveldb.DB(self.db_path, create_if_missing=True)
+        db = self.db_class(self.db_path, create_if_missing=True)
         db.put("aa", "1")
         db.put("bb", "2")
         db.put("cc", "3")
@@ -225,7 +182,7 @@ class LevelDBTestCases(unittest.TestCase):
                 end_inclusive=False)], ["bb"])
 
     def testScopedDB(self, use_writebatch=False):
-        db = leveldb.DB(self.db_path, create_if_missing=True)
+        db = self.db_class(self.db_path, create_if_missing=True)
         scoped_db_1 = db.scope("prefix1_")
         scoped_db_2 = db.scope("prefix2_")
         scoped_db_2a = scoped_db_2.scope("a_")
@@ -295,7 +252,7 @@ class LevelDBTestCases(unittest.TestCase):
         self.testScopedDB(use_writebatch=True)
 
     def testKeysWithZeroBytes(self):
-        db = leveldb.DB(self.db_path, create_if_missing=True)
+        db = self.db_class(self.db_path, create_if_missing=True)
         key_with_zero_byte = ("\x01\x00\x02\x03\x04")
         db.put(key_with_zero_byte, "hey")
         self.assertEqual(db.get(key_with_zero_byte), "hey")
@@ -307,7 +264,7 @@ class LevelDBTestCases(unittest.TestCase):
         db.close()
 
     def testValuesWithZeroBytes(self):
-        db = leveldb.DB(self.db_path, create_if_missing=True)
+        db = self.db_class(self.db_path, create_if_missing=True)
         value_with_zero_byte = ("\x01\x00\x02\x03\x04")
         db.put("hey", value_with_zero_byte)
         self.assertEqual(db.get("hey"), value_with_zero_byte)
@@ -316,6 +273,282 @@ class LevelDBTestCases(unittest.TestCase):
         self.assertEqual(it.key(), "hey")
         self.assertEqual(it.value(), value_with_zero_byte)
         db.close()
+
+
+class LevelDBTestCases(LevelDBTestCasesMixIn, unittest.TestCase):
+
+    db_class = leveldb.DB
+
+    def testInit(self):
+        self.assertRaises(leveldb.Error, self.db_class, self.db_path)
+        self.db_class(self.db_path, create_if_missing=True).close()
+        self.db_class(self.db_path, create_if_missing=True).close()
+        self.db_class(self.db_path).close()
+        self.assertRaises(leveldb.Error, self.db_class, self.db_path,
+                create_if_missing=True, error_if_exists=True)
+
+    def testPutSync(self, size=100):
+        db = self.db_class(self.db_path, create_if_missing=True)
+        for i in xrange(size):
+            db.put(str(i), str(i + 1))
+        start_sync_time = time.time()
+        for i in xrange(size):
+            db.put(str(i), str(i + 1), sync=True)
+        start_unsync_time = time.time()
+        for i in xrange(size):
+            db.put(str(i), str(i + 1))
+        end_time = time.time()
+        sync_time = start_unsync_time - start_sync_time
+        unsync_time = end_time - start_unsync_time
+        self.assertTrue(sync_time > 10 * unsync_time)
+        db.close()
+
+    def testDeleteSync(self, size=100):
+        db = self.db_class(self.db_path, create_if_missing=True)
+        for i in xrange(size):
+            db.put(str(i), str(i + 1))
+        start_sync_time = time.time()
+        for i in xrange(size):
+            db.delete(str(i), sync=True)
+        end_sync_time = time.time()
+        for i in xrange(size):
+            db.put(str(i), str(i + 1))
+        start_unsync_time = time.time()
+        for i in xrange(size):
+            db.delete(str(i))
+        end_unsync_time = time.time()
+        sync_time = end_sync_time - start_sync_time
+        unsync_time = end_unsync_time - start_unsync_time
+        self.assertTrue(sync_time > 10 * unsync_time)
+        db.close()
+
+
+class MemLevelDBTestCases(LevelDBTestCasesMixIn, unittest.TestCase):
+
+    db_class = leveldb.MemoryDB
+
+
+class LevelDBIteratorTestMixIn(object):
+
+    db_class = None
+
+    def setUp(self):
+        self.db_path = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.db_path)
+
+    def test_iteration(self):
+        db = self.db_class(self.db_path, create_if_missing=True)
+        db.put('a', 'b')
+        db.put('c', 'd')
+        iterator = iter(db)
+        self.assertEqual(iterator.next(), ('a', 'b'))
+        self.assertEqual(iterator.next(), ('c', 'd'))
+        self.assertRaises(StopIteration, iterator.next)
+        db.close()
+
+    def test_iteration_with_break(self):
+        db = self.db_class(self.db_path, create_if_missing=True)
+        db.put('a', 'b')
+        db.put('c', 'd')
+        for key, value in db:
+            self.assertEqual((key, value), ('a', 'b'))
+            break
+        db.close()
+
+    def test_iteration_empty_db(self):
+        """
+        Test the null condition, no entries in the database.
+        """
+        db = self.db_class(self.db_path, create_if_missing=True)
+        for _ in db:
+            self.fail("shouldn't happen")
+        db.close()
+
+    def test_seek(self):
+        """
+        Test seeking forwards and backwards
+        """
+        db = self.db_class(self.db_path, create_if_missing=True)
+        db.put('a', 'b')
+        db.put('b', 'b')
+        db.put('ca', 'a')
+        db.put('cb', 'b')
+        db.put('d', 'd')
+        iterator = iter(db).seek("c")
+        self.assertEqual(iterator.next(), ('ca', 'a'))
+        self.assertEqual(iterator.next(), ('cb', 'b'))
+        # seek backwards
+        iterator.seek('a')
+        self.assertEqual(iterator.next(), ('a', 'b'))
+        db.close()
+
+    def test_prefix(self):
+        """
+        Test iterator prefixes
+        """
+        batch = leveldb.WriteBatch()
+        batch.put('a', 'b')
+        batch.put('b', 'b')
+        batch.put('cd', 'a')
+        batch.put('ce', 'a')
+        batch.put('c', 'a')
+        batch.put('f', 'b')
+        db = self.db_class(self.db_path, create_if_missing=True)
+        db.write(batch)
+        iterator = db.iterator(prefix="c")
+        iterator.seekFirst()
+        self.assertEqual(iterator.next(), ('', 'a'))
+        self.assertEqual(iterator.next(), ('d', 'a'))
+        self.assertEqual(iterator.next(), ('e', 'a'))
+        self.assertRaises(StopIteration, iterator.next)
+        db.close()
+
+    def test_multiple_iterators(self):
+        """
+        Make sure that things work with multiple iterator objects
+        alive at one time.
+        """
+        db = self.db_class(self.db_path, create_if_missing=True)
+        entries = [('a', 'b'), ('b', 'b')]
+        db.put(*entries[0])
+        db.put(*entries[1])
+        iter1 = iter(db)
+        iter2 = iter(db)
+        self.assertEqual(iter1.next(), entries[0])
+        # garbage collect iter1, seek iter2 past the end of the db. Make sure
+        # everything works.
+        del iter1
+        iter2.seek('z')
+        self.assertRaises(StopIteration, iter2.next)
+        db.close()
+
+    def test_prev(self):
+        db = self.db_class(self.db_path, create_if_missing=True)
+        db.put('a', 'b')
+        db.put('b', 'b')
+        iterator = iter(db)
+        entry = iterator.next()
+        iterator.prev()
+        self.assertEqual(entry, iterator.next())
+        # it's ok to call prev when the iterator is at position 0
+        iterator.prev()
+        self.assertEqual(entry, iterator.next())
+        db.close()
+
+    def test_seek_first_last(self):
+        db = self.db_class(self.db_path, create_if_missing=True)
+        db.put('a', 'b')
+        db.put('b', 'b')
+        iterator = iter(db)
+        iterator.seekLast()
+        self.assertEqual(iterator.next(), ('b', 'b'))
+        iterator.seekFirst()
+        self.assertEqual(iterator.next(), ('a', 'b'))
+        db.close()
+
+    def test_scoped_seek_first(self):
+        db = self.db_class(os.path.join(self.db_path, "1"),
+                create_if_missing=True)
+        db.put("ba", "1")
+        db.put("bb", "2")
+        db.put("cc", "3")
+        db.put("cd", "4")
+        db.put("de", "5")
+        db.put("df", "6")
+        it = db.scope("a").iterator().seekFirst()
+        self.assertFalse(it.valid())
+        it = db.scope("b").iterator().seekFirst()
+        self.assertTrue(it.valid())
+        self.assertEqual(it.key(), "a")
+        it = db.scope("c").iterator().seekFirst()
+        self.assertTrue(it.valid())
+        self.assertEqual(it.key(), "c")
+        it = db.scope("d").iterator().seekFirst()
+        self.assertTrue(it.valid())
+        self.assertEqual(it.key(), "e")
+        it = db.scope("e").iterator().seekFirst()
+        self.assertFalse(it.valid())
+        db.close()
+
+    def test_scoped_seek_last(self):
+        db = self.db_class(os.path.join(self.db_path, "1"),
+                create_if_missing=True)
+        db.put("ba", "1")
+        db.put("bb", "2")
+        db.put("cc", "3")
+        db.put("cd", "4")
+        db.put("de", "5")
+        db.put("df", "6")
+        it = db.scope("a").iterator().seekLast()
+        self.assertFalse(it.valid())
+        it = db.scope("b").iterator().seekLast()
+        self.assertTrue(it.valid())
+        self.assertEqual(it.key(), "b")
+        it = db.scope("c").iterator().seekLast()
+        self.assertTrue(it.valid())
+        self.assertEqual(it.key(), "d")
+        it = db.scope("d").iterator().seekLast()
+        self.assertTrue(it.valid())
+        self.assertEqual(it.key(), "f")
+        it = db.scope("e").iterator().seekLast()
+        self.assertFalse(it.valid())
+        db.close()
+        db = self.db_class(os.path.join(self.db_path, "2"),
+                create_if_missing=True)
+        db.put("\xff\xff\xffab", "1")
+        db.put("\xff\xff\xffcd", "2")
+        it = db.scope("\xff\xff\xff").iterator().seekLast()
+        self.assertTrue(it.valid())
+        self.assertEqual(it.key(), "cd")
+        db.close()
+        db = self.db_class(os.path.join(self.db_path, "3"),
+                create_if_missing=True)
+        db.put("\xff\xff\xfeab", "1")
+        db.put("\xff\xff\xfecd", "2")
+        it = db.scope("\xff\xff\xff").iterator().seekLast()
+        self.assertFalse(it.valid())
+        db.close()
+        db = self.db_class(os.path.join(self.db_path, "4"),
+                create_if_missing=True)
+        db.put("\xff\xff\xfeab", "1")
+        db.put("\xff\xff\xfecd", "2")
+        it = db.scope("\xff\xff\xfe").iterator().seekLast()
+        self.assertTrue(it.valid())
+        self.assertEqual(it.key(), "cd")
+        db.close()
+        db = self.db_class(os.path.join(self.db_path, "5"),
+                create_if_missing=True)
+        db.put("\xff\xff\xfeab", "1")
+        db.put("\xff\xff\xfecd", "2")
+        db.put("\xff\xff\xffef", "1")
+        db.put("\xff\xff\xffgh", "2")
+        it = db.scope("\xff\xff\xfe").iterator().seekLast()
+        self.assertTrue(it.valid())
+        self.assertEqual(it.key(), "cd")
+        db.close()
+        db = self.db_class(os.path.join(self.db_path, "6"),
+                create_if_missing=True)
+        db.put("\x0f\xff\xfeab", "1")
+        db.put("\x0f\xff\xfecd", "2")
+        db.put("\x0f\xff\xffef", "1")
+        db.put("\x0f\xff\xffgh", "2")
+        it = db.scope("\x0f\xff\xfe").iterator().seekLast()
+        self.assertTrue(it.valid())
+        self.assertEqual(it.key(), "cd")
+        db.close()
+
+
+class LevelDBIteratorTest(LevelDBIteratorTestMixIn, unittest.TestCase):
+
+    db_class = leveldb.DB
+
+
+class MemLevelDBIteratorTest(LevelDBIteratorTestMixIn, unittest.TestCase):
+
+    db_class = leveldb.MemoryDB
+
 
 def main():
     parser = argparse.ArgumentParser("run tests")

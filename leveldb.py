@@ -41,9 +41,11 @@
 __author__ = "JT Olds"
 __email__ = "jt@spacemonkey.com"
 
+import bisect
 import ctypes
 import ctypes.util
 import weakref
+import threading
 from collections import namedtuple
 
 _ldb = ctypes.CDLL(ctypes.util.find_library('leveldb'))
@@ -149,47 +151,50 @@ def _checkError(error):
         raise Error(message)
 
 
-class Iter(object):
-    """A wrapper around leveldb iterators. Can work like an idiomatic Python
-    iterator, or can give you more control.
-    """
+class BaseIter(object):
 
-    def __init__(self, db, verify_checksums=False, fill_cache=True,
-            prefix=None):
-        # DO NOT save a pointer to db in this iterator, as it will cause a
-        # reference cycle
-        assert not db._closed
-        db._registerIterator(self)
-        options = _ldb.leveldb_readoptions_create()
-        _ldb.leveldb_readoptions_set_verify_checksums(options,
-                verify_checksums)
-        _ldb.leveldb_readoptions_set_fill_cache(options, fill_cache)
-        self._iterator = _ldb.leveldb_create_iterator(db._db, options)
-        _ldb.leveldb_readoptions_destroy(options)
+    __slots__ = ["_prefix", "__weakref__"]
+
+    def __init__(self, prefix=None):
         self._prefix = prefix
 
     def _close(self):
-        if self._iterator:
-            _ldb.leveldb_iter_destroy(self._iterator)
-            self._iterator = None
+        raise NotImplementedError()
 
-    def __del__(self):
-        self._close()
+    def _baseValid(self):
+        raise NotImplementedError()
+
+    def _baseKey(self):
+        raise NotImplementedError()
+
+    def _baseVal(self):
+        raise NotImplementedError()
+
+    def _baseSeek(self, key):
+        raise NotImplementedError()
+
+    def _baseSeekFirst(self):
+        raise NotImplementedError()
+
+    def _baseSeekLast(self):
+        raise NotImplementedError()
+
+    def _basePrev(self):
+        raise NotImplementedError()
+
+    def _baseNext(self):
+        raise NotImplementedError()
 
     def valid(self):
         """Returns whether the iterator is valid or not
 
         @rtype: bool
         """
-        assert self._iterator
-        valid = _ldb.leveldb_iter_valid(self._iterator)
-        if self._prefix is None or not valid:
+        valid = self._baseValid()
+        if not valid or self._prefix is None:
             return valid
-        length = ctypes.c_size_t(0)
-        val_p = _ldb.leveldb_iter_key(self._iterator, ctypes.byref(length))
-        assert bool(val_p)
-        return (ctypes.string_at(val_p, min(length.value, len(self._prefix)))
-                == self._prefix)
+        key = self._baseKey()
+        return key[:len(self._prefix)] == self._prefix
 
     def seekFirst(self):
         """
@@ -198,13 +203,10 @@ class Iter(object):
         @return: self
         @rtype: Iter
         """
-        assert self._iterator
         if self._prefix is not None:
-            _ldb.leveldb_iter_seek(self._iterator, self._prefix,
-                    len(self._prefix))
+            self._baseSeek(self._prefix)
         else:
-            _ldb.leveldb_iter_seek_to_first(self._iterator)
-        self._checkError()
+            self._baseSeekFirst()
         return self
 
     def seekLast(self):
@@ -214,13 +216,11 @@ class Iter(object):
         @return: self
         @rtype: Iter
         """
-        assert self._iterator
 
         # if we have no prefix or the last possible prefix of this length, just
         # seek to the last key in the db.
         if self._prefix is None or self._prefix == "\xff" * len(self._prefix):
-            _ldb.leveldb_iter_seek_to_last(self._iterator)
-            self._checkError()
+            self._baseSeekLast()
             return self
 
         # we have a prefix. see if there's anything after our prefix.
@@ -230,15 +230,13 @@ class Iter(object):
         if len(next_prefix) % 2 != 0:
             next_prefix = "0" + next_prefix
         next_prefix = next_prefix.decode("hex")
-        _ldb.leveldb_iter_seek(self._iterator, next_prefix, len(next_prefix))
-        self._checkError()
-        if _ldb.leveldb_iter_valid(self._iterator):
+        self._baseSeek(next_prefix)
+        if self._baseValid():
             # there is something after our prefix. we're on it, so step back
-            _ldb.leveldb_iter_prev(self._iterator)
+            self._basePrev()
         else:
             # there is nothing after our prefix, just seek to the last key
-            _ldb.leveldb_iter_seek_to_last(self._iterator)
-        self._checkError()
+            self._baseSeekLast()
         return self
 
     def seek(self, key):
@@ -251,11 +249,9 @@ class Iter(object):
         @return: self
         @rtype: Iter
         """
-        assert self._iterator
         if self._prefix is not None:
             key = self._prefix + key
-        _ldb.leveldb_iter_seek(self._iterator, key, len(key))
-        self._checkError()
+        self._baseSeek(key)
         return self
 
     def key(self):
@@ -264,11 +260,7 @@ class Iter(object):
 
         @rtype: string
         """
-        assert self._iterator
-        length = ctypes.c_size_t(0)
-        val_p = _ldb.leveldb_iter_key(self._iterator, ctypes.byref(length))
-        assert bool(val_p)
-        key = ctypes.string_at(val_p, length.value)
+        key = self._baseKey()
         if self._prefix is not None:
             return key[len(self._prefix):]
         return key
@@ -279,11 +271,7 @@ class Iter(object):
 
         @rtype: string
         """
-        assert self._iterator
-        length = ctypes.c_size_t(0)
-        val_p = _ldb.leveldb_iter_value(self._iterator, ctypes.byref(length))
-        assert bool(val_p)
-        return ctypes.string_at(val_p, length.value)
+        return self._baseVal()
 
     def __iter__(self):
         return self
@@ -299,7 +287,7 @@ class Iter(object):
         if not self.valid():
             raise StopIteration()
         rv = Row(self.key(), self.value())
-        self.stepForward()
+        self._baseNext()
         return rv
 
     def prev(self):
@@ -313,20 +301,16 @@ class Iter(object):
         if not self.valid():
             raise StopIteration()
         rv = Row(self.key(), self.value())
-        self.stepBackward()
+        self._basePrev()
         return rv
 
     def stepForward(self):
         """Same as next but does not return any data or check for validity"""
-        assert self._iterator
-        _ldb.leveldb_iter_next(self._iterator)
-        self._checkError()
+        self._baseNext()
 
     def stepBackward(self):
         """Same as prev but does not return any data or check for validity"""
-        assert self._iterator
-        _ldb.leveldb_iter_prev(self._iterator)
-        self._checkError()
+        self._basePrev()
 
     def range(self, start_key=None, end_key=None, start_inclusive=True,
             end_inclusive=False):
@@ -334,7 +318,7 @@ class Iter(object):
         if start_key is not None:
             self.seek(start_key)
             if not start_inclusive and self.key() == start_key:
-                self.stepForward()
+                self._baseNext()
         else:
             self.seekFirst()
         for row in self:
@@ -343,10 +327,110 @@ class Iter(object):
                 break
             yield row
 
+
+class Iter(BaseIter):
+    """A wrapper around leveldb iterators. Can work like an idiomatic Python
+    iterator, or can give you more control.
+    """
+
+    __slots__ = ["_iterator"]
+
+    # pylint: disable=W0212
+    def __init__(self, db, verify_checksums=False, fill_cache=True,
+            prefix=None):
+        BaseIter.__init__(self, prefix=prefix)
+        # DO NOT save a pointer to db in this iterator, as it will cause a
+        # reference cycle
+        assert not db._closed
+        db._registerIterator(self)
+        options = _ldb.leveldb_readoptions_create()
+        _ldb.leveldb_readoptions_set_verify_checksums(options,
+                verify_checksums)
+        _ldb.leveldb_readoptions_set_fill_cache(options, fill_cache)
+        self._iterator = _ldb.leveldb_create_iterator(db._db, options)
+        _ldb.leveldb_readoptions_destroy(options)
+
+    def _close(self):
+        if self._iterator:
+            _ldb.leveldb_iter_destroy(self._iterator)
+            self._iterator = None
+
+    def _baseValid(self):
+        return _ldb.leveldb_iter_valid(self._iterator)
+
+    def _baseKey(self):
+        length = ctypes.c_size_t(0)
+        val_p = _ldb.leveldb_iter_key(self._iterator, ctypes.byref(length))
+        assert bool(val_p)
+        return ctypes.string_at(val_p, length.value)
+
+    def _baseVal(self):
+        length = ctypes.c_size_t(0)
+        val_p = _ldb.leveldb_iter_value(self._iterator, ctypes.byref(length))
+        assert bool(val_p)
+        return ctypes.string_at(val_p, length.value)
+
+    def _baseSeek(self, key):
+        _ldb.leveldb_iter_seek(self._iterator, key, len(key))
+        self._checkError()
+
+    def _baseSeekFirst(self):
+        _ldb.leveldb_iter_seek_to_first(self._iterator)
+        self._checkError()
+
+    def _baseSeekLast(self):
+        _ldb.leveldb_iter_seek_to_last(self._iterator)
+        self._checkError()
+
+    def _basePrev(self):
+        _ldb.leveldb_iter_prev(self._iterator)
+        self._checkError()
+
+    def _baseNext(self):
+        _ldb.leveldb_iter_next(self._iterator)
+        self._checkError()
+
     def _checkError(self):
         error = ctypes.POINTER(ctypes.c_char)()
         _ldb.leveldb_iter_get_error(self._iterator, ctypes.byref(error))
         _checkError(error)
+
+
+class MemIter(BaseIter):
+
+    __slots__ = ["_data", "_idx"]
+
+    def __init__(self, memdb_data, prefix=None):
+        BaseIter.__init__(self, prefix=prefix)
+        self._data = memdb_data
+        self._idx = 0
+
+    def _close(self):
+        self._data = []
+
+    def _baseValid(self):
+        return 0 <= self._idx < len(self._data)
+
+    def _baseKey(self):
+        return self._data[self._idx][0]
+
+    def _baseVal(self):
+        return self._data[self._idx][1]
+
+    def _baseSeek(self, key):
+        self._idx = bisect.bisect_left(self._data, (key, ""))
+
+    def _baseSeekFirst(self):
+        self._idx = 0
+
+    def _baseSeekLast(self):
+        self._idx = len(self._data) - 1
+
+    def _basePrev(self):
+        self._idx -= 1
+
+    def _baseNext(self):
+        self._idx += 1
 
 
 class WriteBatch(object):
@@ -365,10 +449,12 @@ class WriteBatch(object):
 
     def clear(self):
         self._puts = {}
-        self.deletes = set()
+        self._deletes = set()
 
 
 class DBInterface(object):
+
+    __slots__ = []
 
     def close(self):
         raise NotImplementedError()
@@ -391,8 +477,8 @@ class DBInterface(object):
     def __iter__(self):
         raise NotImplementedError()
 
-    def scope(self, prefix):
-        raise NotImplementedError()
+    def scope(self, prefix, allow_close=False):
+        return ScopedDB(self, prefix, allow_close=allow_close)
 
     def range(self, start_key=None, end_key=None, start_inclusive=True,
             end_inclusive=False, verify_checksums=False, fill_cache=True):
@@ -402,12 +488,82 @@ class DBInterface(object):
                         end_inclusive=end_inclusive)
 
 
+class MemoryDB(DBInterface):
+
+    """This is primarily for unit testing. If you are doing anything serious,
+    you definitely are more interested in the standard DB class.
+
+    TODO: if the LevelDB C api ever allows for other environments, actually
+          use LevelDB code for this, instead of reimplementing it all in
+          Python.
+    """
+
+    __slots__ = ["_data", "_lock"]
+
+    def __init__(self, *args, **kwargs):
+        DBInterface.__init__(self)
+        assert kwargs.get("create_if_missing", True)
+        self._data = []
+        self._lock = threading.RLock()
+
+    def close(self):
+        with self._lock:
+            self._data = []
+
+    def put(self, key, val, sync=False):
+        assert isinstance(key, str)
+        assert isinstance(val, str)
+        entry = (key, val)
+        with self._lock:
+            idx = bisect.bisect_left(self._data, entry)
+            if 0 <= idx < len(self._data) and self._data[idx][0] == key:
+                self._data[idx] = entry
+            else:
+                self._data.insert(idx, entry)
+
+    def delete(self, key, sync=False):
+        with self._lock:
+            idx = bisect.bisect_left(self._data, (key, ""))
+            if 0 <= idx < len(self._data) and self._data[idx][0] == key:
+                del self._data[idx]
+
+    def get(self, key, verify_checksums=False, fill_cache=True):
+        with self._lock:
+            idx = bisect.bisect_left(self._data, (key, ""))
+            if 0 <= idx < len(self._data) and self._data[idx][0] == key:
+                return self._data[idx][1]
+            return None
+
+    # pylint: disable=W0212
+    def write(self, batch, sync=False):
+        with self._lock:
+            for key, val in batch._puts.iteritems():
+                self.put(key, val)
+            for key in batch._deletes:
+                self.delete(key)
+
+    def iterator(self, verify_checksums=False, fill_cache=True, prefix=None):
+        # WARNING: huge performance hit.
+        # leveldb iterators are actually lightweight snapshots of the data. in
+        # real leveldb, an iterator won't change its idea of the full database
+        # even if puts or deletes happen while the iterator is in use. to
+        # simulate this, there isn't anything simple we can do for now besides
+        # just copy the whole thing.
+        with self._lock:
+            return MemIter(self._data[:], prefix=prefix)
+
+    def __iter__(self):
+        return self.iterator().seekFirst()
+
+
 class DB(DBInterface):
+
+    __slots__ = ["_filter_policy", "_cache", "_db", "_closed", "_iterators"]
 
     def __init__(self, path, bloom_filter_size=10, create_if_missing=False,
             error_if_exists=False, paranoid_checks=False,
-            write_buffer_size=(4*1024*1024), max_open_files=1000,
-            block_cache_size=(8*1024*1024), block_size=(4*1024)):
+            write_buffer_size=(4 * 1024 * 1024), max_open_files=1000,
+            block_cache_size=(8 * 1024 * 1024), block_size=(4 * 1024)):
         DBInterface.__init__(self)
         self._filter_policy = _ldb.leveldb_filterpolicy_create_bloom(
                 bloom_filter_size)
@@ -436,7 +592,7 @@ class DB(DBInterface):
             for iterator in self._iterators.valuerefs():
                 iterator = iterator()
                 if iterator is not None:
-                    iterator._close()
+                    iterator._close()  # pylint: disable=W0212
             self._iterators = weakref.WeakValueDictionary()
             if self._db:
                 _ldb.leveldb_close(self._db)
@@ -485,6 +641,7 @@ class DB(DBInterface):
         _checkError(error)
         return val
 
+    # pylint: disable=W0212
     def write(self, batch, sync=False):
         real_batch = _ldb.leveldb_writebatch_create()
         for key, val in batch._puts.iteritems():
@@ -508,19 +665,19 @@ class DB(DBInterface):
     def __iter__(self):
         return Iter(self).seekFirst()
 
-    def scope(self, prefix, allow_close=False):
-        return ScopedDB(self, prefix, allow_close=allow_close)
-
 
 class ScopedDB(DBInterface):
 
+    __slots__ = ["_db", "_prefix", "_allow_close"]
+
     def __init__(self, db, prefix, allow_close=False):
+        DBInterface.__init__(self)
         self._db = db
         self._prefix = prefix
         self._allow_close = allow_close
 
     def close(self):
-        if self.allow_close:
+        if self._allow_close:
             self._db.close()
 
     def put(self, key, *args, **kwargs):
@@ -532,6 +689,7 @@ class ScopedDB(DBInterface):
     def get(self, key, *args, **kwargs):
         return self._db.get(self._prefix + key, *args, **kwargs)
 
+    # pylint: disable=W0212
     def write(self, batch, *args, **kwargs):
         unscoped_batch = WriteBatch()
         for key, value in batch._puts.iteritems():
@@ -545,11 +703,8 @@ class ScopedDB(DBInterface):
             prefix = self._prefix
         else:
             prefix = self._prefix + prefix
-        return Iter(self._db, verify_checksums=verify_checksums,
+        return self._db.iterator(verify_checksums=verify_checksums,
                 fill_cache=fill_cache, prefix=prefix)
 
     def __iter__(self):
-        return Iter(self._db, prefix=self._prefix).seekFirst()
-
-    def scope(self, prefix):
-        return self._db.scope(self._prefix + prefix)
+        return self._db.iterator(prefix=self._prefix).seekFirst()
