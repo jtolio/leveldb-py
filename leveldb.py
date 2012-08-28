@@ -29,13 +29,30 @@
       * snapshots
       * custom comparators, filter policies, caches
 
-    This isn't exactly the most performant interface to LevelDB, but this
-    interface requires nothing more than the leveldb shared object with the C
-    api being installed.
+    This interface requires nothing more than the leveldb shared object with
+    the C api being installed.
 
     There's a bug with LevelDB 1.5's build script that may make getting this
     to work challenging for you. See:
     http://code.google.com/p/leveldb/issues/detail?id=94
+
+    For most usages, you are likely to only be interested in the "DB" and maybe
+    the "WriteBatch" classes for construction. The other classes are helper
+    classes that you may end up using as part of those two root classes.
+
+     * DB - This class wraps a LevelDB. On initialization it opens the database
+            and provides access to it.
+     * Iter - this class is created by calls to DB::iterator. Supports range
+            requests, seeking, prefix searching, etc
+     * WriteBatch - this class is a standalone object. You can perform writes
+            and deletes on it, but nothing happens to your database until you
+            write the writebatch to the database with DB::write
+     * ScopedDB - this class is generated from calls to DB::scope. It returns
+            a database handle that wraps all calls to it with a given key
+            prefix.
+     * MemoryDB - this class provides the same interface as DB and ScopedDB,
+            except it runs completely out of memory. It also ends up using
+            MemIter instead of Iter for iteration.
 """
 
 __author__ = "JT Olds"
