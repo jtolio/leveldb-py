@@ -57,6 +57,12 @@ class LevelDBTestCasesMixIn(object):
                 fill_cache=False), "val2")
         self.assertEqual(db.get("key1"), "val1")
         self.assertEqual(db.get("key2"), "val2")
+        self.assertEqual(list(db.keys()), ["key1", "key2"])
+        self.assertEqual(list(db.keys(prefix="key")), ["1", "2"])
+        self.assertEqual(list(db.keys(prefix="key1")), [""])
+        self.assertEqual(list(db.values()), ["val1", "val2"])
+        self.assertEqual(list(db.values(prefix="key")), ["val1", "val2"])
+        self.assertEqual(list(db.values(prefix="key1")), ["val1"])
         db.close()
 
     def testDelete(self):

@@ -344,6 +344,16 @@ class BaseIter(object):
                 break
             yield row
 
+    def keys(self):
+        while self.valid():
+            yield self.key()
+            self.stepForward()
+
+    def values(self):
+        while self.valid():
+            yield self.value()
+            self.stepForward()
+
 
 class Iter(BaseIter):
     """A wrapper around leveldb iterators. Can work like an idiomatic Python
@@ -420,7 +430,7 @@ class MemIter(BaseIter):
     def __init__(self, memdb_data, prefix=None):
         BaseIter.__init__(self, prefix=prefix)
         self._data = memdb_data
-        self._idx = 0
+        self._idx = -1
 
     def _close(self):
         self._data = []
@@ -503,6 +513,14 @@ class DBInterface(object):
                 fill_cache=fill_cache).range(start_key=start_key,
                         end_key=end_key, start_inclusive=start_inclusive,
                         end_inclusive=end_inclusive)
+
+    def keys(self, verify_checksums=False, fill_cache=True, prefix=None):
+        return self.iterator(verify_checksums=verify_checksums,
+                fill_cache=fill_cache, prefix=prefix).seekFirst().keys()
+
+    def values(self, verify_checksums=False, fill_cache=True, prefix=None):
+        return self.iterator(verify_checksums=verify_checksums,
+                fill_cache=fill_cache, prefix=prefix).seekFirst().values()
 
 
 class MemoryDB(DBInterface):
