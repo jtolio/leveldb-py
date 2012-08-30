@@ -548,13 +548,12 @@ class MemoryDB(DBInterface):
     def put(self, key, val, sync=False):
         assert isinstance(key, str)
         assert isinstance(val, str)
-        entry = (key, val)
         with self._lock:
-            idx = bisect.bisect_left(self._data, entry)
+            idx = bisect.bisect_left(self._data, (key, ""))
             if 0 <= idx < len(self._data) and self._data[idx][0] == key:
-                self._data[idx] = entry
+                self._data[idx] = (key, val)
             else:
-                self._data.insert(idx, entry)
+                self._data.insert(idx, (key, val))
 
     def delete(self, key, sync=False):
         with self._lock:

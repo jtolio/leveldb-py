@@ -280,6 +280,18 @@ class LevelDBTestCasesMixIn(object):
         self.assertEqual(it.value(), value_with_zero_byte)
         db.close()
 
+    def testKeyRewrite(self):
+        db = self.db_class(self.db_path, create_if_missing=True)
+        self.assertEqual(db.get("hey"), None)
+        db.put("hey", "1")
+        self.assertEqual(db.get("hey"), "1")
+        db.put("hey", "2")
+        self.assertEqual(db.get("hey"), "2")
+        db.put("hey", "2")
+        self.assertEqual(db.get("hey"), "2")
+        db.put("hey", "3")
+        self.assertEqual(db.get("hey"), "3")
+
 
 class LevelDBTestCases(LevelDBTestCasesMixIn, unittest.TestCase):
 
