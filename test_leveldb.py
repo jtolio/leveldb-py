@@ -292,6 +292,34 @@ class LevelDBTestCasesMixIn(object):
         db.put("hey", "3")
         self.assertEqual(db.get("hey"), "3")
 
+    def test__getsetitem__(self):
+        db = self.db_class(self.db_path, create_if_missing=True)
+        db["hey"] = "1"
+        self.assertTrue("hey" in db)
+        self.assertEqual(db["hey"], "1")
+        db["hey"] = "2"
+        self.assertEqual(db["hey"], "2")
+        db["hey"] = "2"
+        self.assertEqual(db["hey"], "2")
+        db["hey"] = "3"
+        self.assertEqual(db["hey"], "3")
+
+    def test__contains__(self):
+        db = self.db_class(self.db_path, create_if_missing=True)
+        self.assertTrue("hey" not in db)
+        with self.assertRaises(KeyError):
+            db["hey"]
+        db["hey"] = "1"
+        self.assertTrue("hey" in db)
+
+    def test__delitem__(self):
+        db = self.db_class(self.db_path, create_if_missing=True)
+        self.assertTrue("hey" not in db)
+        db["hey"] = "1"
+        self.assertTrue("hey" in db)
+        del db["hey"]
+        self.assertTrue("hey" not in db)
+
 
 class LevelDBTestCases(LevelDBTestCasesMixIn, unittest.TestCase):
 

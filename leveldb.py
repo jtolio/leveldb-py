@@ -504,6 +504,25 @@ class DBInterface(object):
     def __iter__(self):
         raise NotImplementedError()
 
+    def __getitem__(self, k):
+        v = self.get(k)
+        if v is None:
+            raise KeyError(k)
+        return v
+
+    def __setitem__(self, k, v):
+        self.put(k, v)
+
+    def __delitem__(self, k):
+        self.delete(k)
+
+    def __contains__(self, item):
+        try:
+            self[item]
+            return True
+        except KeyError:
+            return False
+
     def scope(self, prefix, allow_close=False):
         return ScopedDB(self, prefix, allow_close=allow_close)
 
