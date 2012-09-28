@@ -517,11 +517,10 @@ class DBInterface(object):
         self.delete(k)
 
     def __contains__(self, item):
-        try:
-            self[item]
-            return True
-        except KeyError:
+        if self.get(item) is None:
             return False
+        else:
+            return True
 
     def scope(self, prefix, allow_close=False):
         return ScopedDB(self, prefix, allow_close=allow_close)
