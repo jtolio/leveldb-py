@@ -516,11 +516,13 @@ class DBInterface(object):
     def __delitem__(self, k):
         self.delete(k)
 
-    def __contains__(self, item):
-        if self.get(item) is None:
-            return False
-        else:
-            return True
+    def __contains__(self, key):
+        return self.has(key)
+
+    def has(self, key, verify_checksums=False, fill_cache=True):
+        it = self.iterator(verify_checksums=verify_checksums,
+                           fill_cache=fill_cache).seek(key)
+        return it.valid() and it.key() == key
 
     def scope(self, prefix, allow_close=False):
         return ScopedDB(self, prefix, allow_close=allow_close)
