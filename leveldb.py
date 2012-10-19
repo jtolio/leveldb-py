@@ -147,6 +147,10 @@ _ldb.leveldb_writebatch_put.argtypes = [ctypes.c_void_p, ctypes.c_void_p,
 _ldb.leveldb_writebatch_delete.argtypes = [ctypes.c_void_p, ctypes.c_void_p,
         ctypes.c_size_t]
 
+_ldb.leveldb_approximate_sizes.argtypes = [ctypes.c_void_p, ctypes.c_int,
+        ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p,
+        ctypes.c_void_p]
+
 _ldb.leveldb_free.argtypes = [ctypes.c_void_p]
 
 
@@ -538,6 +542,9 @@ class DBInterface(object):
         return self.iterator(verify_checksums=verify_checksums,
                 fill_cache=fill_cache, prefix=prefix).seekFirst().values()
 
+    def approximateDiskSizes(self, *ranges):
+        raise NotImplementedError()
+
 
 class MemoryDB(DBInterface):
 
@@ -604,6 +611,9 @@ class MemoryDB(DBInterface):
 
     def __iter__(self):
         return self.iterator().seekFirst()
+
+    def approximateDiskSizes(self, *ranges):
+        return [0] * len(ranges)
 
 
 class DB(DBInterface):
@@ -715,6 +725,23 @@ class DB(DBInterface):
     def __iter__(self):
         return Iter(self).seekFirst()
 
+    def approximateDiskSizes(self, *ranges):
+        assert len(ranges) > 0
+        key_type = ctypes.c_void_p * len(ranges)
+        len_type = ctypes.c_size_t * len(ranges)
+        start_keys, start_lens = key_type(), len_type()
+        end_keys, end_lens = key_type(), len_type()
+        sizes = (ctypes.c_uint64 * len(ranges))()
+        for i, range_ in enumerate(ranges):
+            assert isinstance(range_, tuple) and len(range_) == 2
+            assert isinstance(range_[0], str) and isinstance(range_[1], str)
+            start_keys[i] = ctypes.cast(range_[0], ctypes.c_void_p)
+            end_keys[i] = ctypes.cast(range_[1], ctypes.c_void_p)
+            start_lens[i], end_lens[i] = len(range_[0]), len(range_[1])
+        _ldb.leveldb_approximate_sizes(self._db, len(ranges), start_keys,
+                start_lens, end_keys, end_lens, sizes)
+        return list(sizes)
+
 
 class ScopedDB(DBInterface):
 
@@ -762,3 +789,8 @@ class ScopedDB(DBInterface):
     def scope(self, prefix, allow_close=False):
         return ScopedDB(self._db, self._prefix + prefix,
                 allow_close=allow_close)
+
+    def approximateDiskSizes(self, *ranges):
+        return self._db.approximateDiskSizes(*(
+                (self._prefix + start, self._prefix + end)
+                for start, end in ranges))

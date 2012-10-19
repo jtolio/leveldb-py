@@ -590,6 +590,31 @@ class LevelDBIteratorTest(LevelDBIteratorTestMixIn, unittest.TestCase):
 
     db_class = leveldb.DB
 
+    def testApproximateSizes(self):
+        db = self.db_class(self.db_path, create_if_missing=True)
+        self.assertEqual([0, 0, 0],
+            db.approximateDiskSizes(("a", "z"), ("0", "9"), ("A", "Z")))
+        batch = leveldb.WriteBatch()
+        for i in xrange(100):
+            batch.put("c%d" % i, os.urandom(4096))
+        db.write(batch, sync=True)
+        db.close()
+        db = self.db_class(self.db_path)
+        sizes = db.approximateDiskSizes(("0", "9"), ("A", "Z"), ("a", "z"))
+        self.assertEqual(sizes[0], 0)
+        self.assertEqual(sizes[1], 0)
+        self.assertTrue(sizes[2] >= 4096 * 100)
+        for i in xrange(10):
+            db.put("3%d" % i, os.urandom(10))
+        db.close()
+        db = self.db_class(self.db_path)
+        sizes = db.approximateDiskSizes(("A", "Z"), ("a", "z"), ("0", "9"))
+        self.assertEqual(sizes[0], 0)
+        self.assertTrue(sizes[1] >= 4096 * 100)
+        self.assertTrue(sizes[2] < 4096 * 100)
+        self.assertTrue(sizes[2] >= 10 * 10)
+        db.close()
+
 
 class MemLevelDBIteratorTest(LevelDBIteratorTestMixIn, unittest.TestCase):
 
