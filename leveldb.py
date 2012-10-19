@@ -32,9 +32,7 @@
     This interface requires nothing more than the leveldb shared object with
     the C api being installed.
 
-    There's a bug with LevelDB 1.5's build script that may make getting this
-    to work challenging for you. See:
-    http://code.google.com/p/leveldb/issues/detail?id=94
+    Now requires LevelDB 1.6 or newer.
 
     For most usages, you are likely to only be interested in the "DB" and maybe
     the "WriteBatch" classes for construction. The other classes are helper
@@ -66,7 +64,6 @@ import threading
 from collections import namedtuple
 
 _ldb = ctypes.CDLL(ctypes.util.find_library('leveldb'))
-_libc = ctypes.CDLL(ctypes.util.find_library('c'))
 
 _ldb.leveldb_filterpolicy_create_bloom.argtypes = [ctypes.c_int]
 _ldb.leveldb_filterpolicy_create_bloom.restype = ctypes.c_void_p
@@ -150,8 +147,7 @@ _ldb.leveldb_writebatch_put.argtypes = [ctypes.c_void_p, ctypes.c_void_p,
 _ldb.leveldb_writebatch_delete.argtypes = [ctypes.c_void_p, ctypes.c_void_p,
         ctypes.c_size_t]
 
-_libc.free.argtypes = [ctypes.c_void_p]
-_libc.memcpy.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t]
+_ldb.leveldb_free.argtypes = [ctypes.c_void_p]
 
 
 Row = namedtuple('Row', 'key value')
@@ -164,7 +160,7 @@ class Error(Exception):
 def _checkError(error):
     if bool(error):
         message = ctypes.string_at(error)
-        _libc.free(ctypes.cast(error, ctypes.c_void_p))
+        _ldb.leveldb_free(ctypes.cast(error, ctypes.c_void_p))
         raise Error(message)
 
 
@@ -688,7 +684,7 @@ class DB(DBInterface):
                 ctypes.byref(size), ctypes.byref(error))
         if bool(val_p):
             val = ctypes.string_at(val_p, size.value)
-            _libc.free(ctypes.cast(val_p, ctypes.c_void_p))
+            _ldb.leveldb_free(ctypes.cast(val_p, ctypes.c_void_p))
         else:
             val = None
         _ldb.leveldb_readoptions_destroy(options)
