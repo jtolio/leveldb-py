@@ -758,3 +758,7 @@ class ScopedDB(DBInterface):
 
     def __iter__(self):
         return self._db.iterator(prefix=self._prefix).seekFirst()
+
+    def scope(self, prefix, allow_close=False):
+        return ScopedDB(self._db, self._prefix + prefix,
+                allow_close=allow_close)
