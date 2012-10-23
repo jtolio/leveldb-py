@@ -377,6 +377,9 @@ class Iter(BaseIter):
         self._iterator = _ldb.leveldb_create_iterator(db._db, options)
         _ldb.leveldb_readoptions_destroy(options)
 
+    def __del__(self):
+        self._close()
+
     def _close(self):
         if self._iterator:
             _ldb.leveldb_iter_destroy(self._iterator)
