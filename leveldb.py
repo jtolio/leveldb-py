@@ -68,38 +68,55 @@ _ldb = ctypes.CDLL(ctypes.util.find_library('leveldb'))
 _ldb.leveldb_filterpolicy_create_bloom.argtypes = [ctypes.c_int]
 _ldb.leveldb_filterpolicy_create_bloom.restype = ctypes.c_void_p
 _ldb.leveldb_filterpolicy_destroy.argtypes = [ctypes.c_void_p]
+_ldb.leveldb_filterpolicy_destroy.restype = None
 _ldb.leveldb_cache_create_lru.argtypes = [ctypes.c_size_t]
 _ldb.leveldb_cache_create_lru.restype = ctypes.c_void_p
 _ldb.leveldb_cache_destroy.argtypes = [ctypes.c_void_p]
+_ldb.leveldb_cache_destroy.restype = None
 
 _ldb.leveldb_options_create.argtypes = []
 _ldb.leveldb_options_create.restype = ctypes.c_void_p
 _ldb.leveldb_options_set_filter_policy.argtypes = [ctypes.c_void_p,
         ctypes.c_void_p]
+_ldb.leveldb_options_set_filter_policy.restype = None
 _ldb.leveldb_options_set_create_if_missing.argtypes = [ctypes.c_void_p,
         ctypes.c_ubyte]
+_ldb.leveldb_options_set_create_if_missing.restype = None
 _ldb.leveldb_options_set_error_if_exists.argtypes = [ctypes.c_void_p,
         ctypes.c_ubyte]
+_ldb.leveldb_options_set_error_if_exists.restype = None
 _ldb.leveldb_options_set_paranoid_checks.argtypes = [ctypes.c_void_p,
         ctypes.c_ubyte]
+_ldb.leveldb_options_set_paranoid_checks.restype = None
 _ldb.leveldb_options_set_write_buffer_size.argtypes = [ctypes.c_void_p,
         ctypes.c_size_t]
+_ldb.leveldb_options_set_write_buffer_size.restype = None
 _ldb.leveldb_options_set_max_open_files.argtypes = [ctypes.c_void_p,
         ctypes.c_int]
+_ldb.leveldb_options_set_max_open_files.restype = None
 _ldb.leveldb_options_set_cache.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+_ldb.leveldb_options_set_cache.restype = None
 _ldb.leveldb_options_set_block_size.argtypes = [ctypes.c_void_p,
         ctypes.c_size_t]
+_ldb.leveldb_options_set_block_size.restype = None
 _ldb.leveldb_options_destroy.argtypes = [ctypes.c_void_p]
+_ldb.leveldb_options_destroy.restype = None
 
 _ldb.leveldb_open.argtypes = [ctypes.c_void_p, ctypes.c_char_p,
         ctypes.c_void_p]
 _ldb.leveldb_open.restype = ctypes.c_void_p
 _ldb.leveldb_close.argtypes = [ctypes.c_void_p]
+_ldb.leveldb_close.restype = None
 _ldb.leveldb_put.argtypes = [ctypes.c_void_p, ctypes.c_void_p,
         ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t,
         ctypes.c_void_p]
+_ldb.leveldb_put.restype = None
 _ldb.leveldb_delete.argtypes = [ctypes.c_void_p, ctypes.c_void_p,
         ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p]
+_ldb.leveldb_delete.restype = None
+_ldb.leveldb_write.argtypes = [ctypes.c_void_p, ctypes.c_void_p,
+        ctypes.c_void_p, ctypes.c_void_p]
+_ldb.leveldb_write.restype = None
 _ldb.leveldb_get.argtypes = [ctypes.c_void_p, ctypes.c_void_p,
         ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_void_p]
 _ldb.leveldb_get.restype = ctypes.POINTER(ctypes.c_char)
@@ -107,20 +124,27 @@ _ldb.leveldb_get.restype = ctypes.POINTER(ctypes.c_char)
 _ldb.leveldb_writeoptions_create.argtypes = []
 _ldb.leveldb_writeoptions_create.restype = ctypes.c_void_p
 _ldb.leveldb_writeoptions_destroy.argtypes = [ctypes.c_void_p]
+_ldb.leveldb_writeoptions_destroy.restype = None
 _ldb.leveldb_writeoptions_set_sync.argtypes = [ctypes.c_void_p,
         ctypes.c_ubyte]
+_ldb.leveldb_writeoptions_set_sync.restype = None
+
 
 _ldb.leveldb_readoptions_create.argtypes = []
 _ldb.leveldb_readoptions_create.restype = ctypes.c_void_p
 _ldb.leveldb_readoptions_destroy.argtypes = [ctypes.c_void_p]
+_ldb.leveldb_readoptions_destroy.restype = None
 _ldb.leveldb_readoptions_set_verify_checksums.argtypes = [ctypes.c_void_p,
         ctypes.c_ubyte]
+_ldb.leveldb_readoptions_set_verify_checksums.restype = None
 _ldb.leveldb_readoptions_set_fill_cache.argtypes = [ctypes.c_void_p,
         ctypes.c_ubyte]
+_ldb.leveldb_readoptions_set_fill_cache.restype = None
 
 _ldb.leveldb_create_iterator.argtypes = [ctypes.c_void_p,  ctypes.c_void_p]
 _ldb.leveldb_create_iterator.restype = ctypes.c_void_p
 _ldb.leveldb_iter_destroy.argtypes = [ctypes.c_void_p]
+_ldb.leveldb_iter_destroy.restype = None
 _ldb.leveldb_iter_valid.argtypes = [ctypes.c_void_p]
 _ldb.leveldb_iter_valid.restype = ctypes.c_bool
 _ldb.leveldb_iter_key.argtypes = [ctypes.c_void_p,
@@ -130,28 +154,40 @@ _ldb.leveldb_iter_value.argtypes = [ctypes.c_void_p,
         ctypes.POINTER(ctypes.c_size_t)]
 _ldb.leveldb_iter_value.restype = ctypes.c_void_p
 _ldb.leveldb_iter_next.argtypes = [ctypes.c_void_p]
+_ldb.leveldb_iter_next.restype = None
 _ldb.leveldb_iter_prev.argtypes = [ctypes.c_void_p]
+_ldb.leveldb_iter_prev.restype = None
 _ldb.leveldb_iter_seek_to_first.argtypes = [ctypes.c_void_p]
+_ldb.leveldb_iter_seek_to_first.restype = None
 _ldb.leveldb_iter_seek_to_last.argtypes = [ctypes.c_void_p]
+_ldb.leveldb_iter_seek_to_last.restype = None
 _ldb.leveldb_iter_seek.argtypes = [ctypes.c_void_p, ctypes.c_void_p,
         ctypes.c_size_t]
+_ldb.leveldb_iter_seek.restype = None
 _ldb.leveldb_iter_get_error.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+_ldb.leveldb_iter_get_error.restype = None
 
 _ldb.leveldb_writebatch_create.argtypes = []
 _ldb.leveldb_writebatch_create.restype = ctypes.c_void_p
 _ldb.leveldb_writebatch_destroy.argtypes = [ctypes.c_void_p]
+_ldb.leveldb_writebatch_destroy.restype = None
 _ldb.leveldb_writebatch_clear.argtypes = [ctypes.c_void_p]
+_ldb.leveldb_writebatch_clear.restype = None
 
 _ldb.leveldb_writebatch_put.argtypes = [ctypes.c_void_p, ctypes.c_void_p,
         ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t]
+_ldb.leveldb_writebatch_put.restype = None
 _ldb.leveldb_writebatch_delete.argtypes = [ctypes.c_void_p, ctypes.c_void_p,
         ctypes.c_size_t]
+_ldb.leveldb_writebatch_delete.restype = None
 
 _ldb.leveldb_approximate_sizes.argtypes = [ctypes.c_void_p, ctypes.c_int,
         ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p,
         ctypes.c_void_p]
+_ldb.leveldb_approximate_sizes.restype = None
 
 _ldb.leveldb_free.argtypes = [ctypes.c_void_p]
+_ldb.leveldb_free.restype = None
 
 
 Row = namedtuple('Row', 'key value')
