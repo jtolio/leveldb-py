@@ -320,10 +320,30 @@ class LevelDBTestCasesMixIn(object):
         del db["hey"]
         self.assertTrue("hey" not in db)
 
+    def testSnapshots(self):
+        db = self.db_class(self.db_path, create_if_missing=True)
+        snapshot = db.snapshot()
+        db["hey"] = "1"
+        db["there"] = "2"
+        self.assertEqual(len(list(db)), 2)
+        self.assertEqual(len(list(snapshot)), 0)
+        snapshot = db.snapshot()
+        self.assertEqual(len(list(snapshot)), 2)
+        self.assertEqual(snapshot["hey"], "1")
+        self.assertEqual(snapshot["there"], "2")
+        self.assertEqual(db["hey"], "1")
+        self.assertEqual(db["there"], "2")
+        db["hey"] = "3"
+        db["there"] = "4"
+        self.assertEqual(snapshot["hey"], "1")
+        self.assertEqual(snapshot["there"], "2")
+        self.assertEqual(db["hey"], "3")
+        self.assertEqual(db["there"], "4")
+
 
 class LevelDBTestCases(LevelDBTestCasesMixIn, unittest.TestCase):
 
-    db_class = leveldb.DB
+    db_class = staticmethod(leveldb.DB)
 
     def testInit(self):
         self.assertRaises(leveldb.Error, self.db_class, self.db_path)
@@ -371,7 +391,7 @@ class LevelDBTestCases(LevelDBTestCasesMixIn, unittest.TestCase):
 
 class MemLevelDBTestCases(LevelDBTestCasesMixIn, unittest.TestCase):
 
-    db_class = leveldb.MemoryDB
+    db_class = staticmethod(leveldb.MemoryDB)
 
 
 class LevelDBIteratorTestMixIn(object):
@@ -391,6 +411,16 @@ class LevelDBIteratorTestMixIn(object):
         iterator = iter(db)
         self.assertEqual(iterator.next(), ('a', 'b'))
         self.assertEqual(iterator.next(), ('c', 'd'))
+        self.assertRaises(StopIteration, iterator.next)
+        db.close()
+
+    def test_iteration_keys_only(self):
+        db = self.db_class(self.db_path, create_if_missing=True)
+        db.put('a', 'b')
+        db.put('c', 'd')
+        iterator = db.iterator(keys_only=True).seekFirst()
+        self.assertEqual(iterator.next(), 'a')
+        self.assertEqual(iterator.next(), 'c')
         self.assertRaises(StopIteration, iterator.next)
         db.close()
 
@@ -588,7 +618,7 @@ class LevelDBIteratorTestMixIn(object):
 
 class LevelDBIteratorTest(LevelDBIteratorTestMixIn, unittest.TestCase):
 
-    db_class = leveldb.DB
+    db_class = staticmethod(leveldb.DB)
 
     def testApproximateSizes(self):
         db = self.db_class(self.db_path, create_if_missing=True)
@@ -618,7 +648,7 @@ class LevelDBIteratorTest(LevelDBIteratorTestMixIn, unittest.TestCase):
 
 class MemLevelDBIteratorTest(LevelDBIteratorTestMixIn, unittest.TestCase):
 
-    db_class = leveldb.MemoryDB
+    db_class = staticmethod(leveldb.MemoryDB)
 
 
 def main():
