@@ -388,6 +388,65 @@ class LevelDBTestCases(LevelDBTestCasesMixIn, unittest.TestCase):
         self.assertTrue(sync_time > 10 * unsync_time)
         db.close()
 
+    def testSegfaultFromIssue2(self, short_time=10):
+        """https://code.google.com/p/leveldb-py/issues/detail?id=2"""
+        # i assume the reporter meant opening a new db a bunch of times?
+        paths = []
+        dbs = []
+        start_time = time.time()
+        while time.time() - start_time < short_time:
+            path = tempfile.mkdtemp()
+            paths.append(path)
+            db = self.db_class(path, create_if_missing=True)
+            batch = leveldb.WriteBatch()
+            for x in xrange(10000):
+                batch.put(str(x), str(x))
+            db.write(batch)
+            dbs.append(db)
+        for db in dbs:
+            db.close()
+
+        # maybe the reporter meant opening the same db over and over?
+        start_time = time.time()
+        path = tempfile.mkdtemp()
+        paths.append(path)
+        while time.time() - start_time < short_time:
+            db = self.db_class(path, create_if_missing=True)
+            batch = leveldb.WriteBatch()
+            for x in xrange(10000):
+                batch.put(str(x), str(x))
+            db.write(batch)
+            db.close()
+
+        # or maybe the same db handle, but lots of write batches?
+        start_time = time.time()
+        path = tempfile.mkdtemp()
+        paths.append(path)
+        db = self.db_class(path, create_if_missing=True)
+        while time.time() - start_time < short_time:
+            batch = leveldb.WriteBatch()
+            for x in xrange(10000):
+                batch.put(str(x), str(x))
+            db.write(batch)
+        db.close()
+
+        # or maybe it was lots of batch puts?
+        start_time = time.time()
+        path = tempfile.mkdtemp()
+        paths.append(path)
+        db = self.db_class(path, create_if_missing=True)
+        batch = leveldb.WriteBatch()
+        x = 0
+        while time.time() - start_time < short_time:
+            batch.put(str(x), str(x))
+            x += 1
+        db.write(batch)
+        db.close()
+
+        # if we got here, we haven't segfaulted, so, i dunno
+        for path in paths:
+            shutil.rmtree(path)
+
 
 class MemLevelDBTestCases(LevelDBTestCasesMixIn, unittest.TestCase):
 
