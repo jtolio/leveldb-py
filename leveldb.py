@@ -181,6 +181,10 @@ _ldb.leveldb_approximate_sizes.argtypes = [ctypes.c_void_p, ctypes.c_int,
         ctypes.c_void_p]
 _ldb.leveldb_approximate_sizes.restype = None
 
+_ldb.leveldb_compact_range.argtypes = [ctypes.c_void_p, ctypes.c_void_p,
+        ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t]
+_ldb.leveldb_compact_range.restype = None
+
 _ldb.leveldb_create_snapshot.argtypes = [ctypes.c_void_p]
 _ldb.leveldb_create_snapshot.restype = ctypes.c_void_p
 _ldb.leveldb_release_snapshot.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
@@ -490,6 +494,9 @@ class DBInterface(object):
     def approximateDiskSizes(self, *ranges):
         return self._impl.approximateDiskSizes(*ranges)
 
+    def compactRange(self, start_key, end_key):
+        return self._impl.compactRange(start_key, end_key)
+
 
 def MemoryDB(*_args, **kwargs):
     """This is primarily for unit testing. If you are doing anything serious,
@@ -605,6 +612,9 @@ class _MemoryDBImpl(object):
         if self._is_snapshot:
             raise TypeError("cannot calculate disk sizes on leveldb snapshot")
         return [0] * len(ranges)
+
+    def compactRange(self, start_key, end_key):
+        pass
 
     def snapshot(self):
         if self._is_snapshot:
@@ -843,6 +853,11 @@ class _LevelDBImpl(object):
         _ldb.leveldb_approximate_sizes(self._db.ref, len(ranges), start_keys,
                 start_lens, end_keys, end_lens, sizes)
         return list(sizes)
+
+    def compactRange(self, start_key, end_key):
+        assert isinstance(start_key, str) and isinstance(end_key, str)
+        _ldb.leveldb_compact_range(self._db.ref, start_key, len(start_key),
+                end_key, len(end_key))
 
     def snapshot(self):
         snapshot_ref = _PointerRef(
