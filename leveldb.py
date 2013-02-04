@@ -256,7 +256,7 @@ class Iterator(object):
                 )[2:].rstrip("L")
         if len(next_prefix) % 2 != 0:
             next_prefix = "0" + next_prefix
-        next_prefix = next_prefix.decode("hex")
+        next_prefix = next_prefix.decode("hex").rstrip("\x00")
         self._impl.seek(next_prefix)
         if self._impl.valid():
             # there is something after our prefix. we're on it, so step back

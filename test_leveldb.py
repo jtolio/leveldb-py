@@ -673,6 +673,14 @@ class LevelDBIteratorTestMixIn(object):
         self.assertTrue(it.valid())
         self.assertEqual(it.key(), "cd")
         db.close()
+        db = self.db_class(os.path.join(self.db_path, "7"),
+                create_if_missing=True)
+        db.put("\x10\xff", "1")
+        db.put("\x11", "2")
+        it = db.scope("\x10\xff").iterator().seekLast()
+        self.assertTrue(it.valid())
+        self.assertEqual(it.value(), "1")
+        db.close()
 
 
 class LevelDBIteratorTest(LevelDBIteratorTestMixIn, unittest.TestCase):
