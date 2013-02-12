@@ -372,6 +372,9 @@ class Iterator(object):
             yield self.value()
             self.stepForward()
 
+    def close(self):
+      self._impl.close()
+
 
 class WriteBatch(object):
 
@@ -544,6 +547,10 @@ class _IteratorMemImpl(object):
     def next(self):
         self._idx += 1
 
+    def close(self):
+      self._data = []
+      self._idx = -1
+
 
 class _MemoryDBImpl(object):
 
@@ -703,6 +710,9 @@ class _IteratorDbImpl(object):
         error = ctypes.POINTER(ctypes.c_char)()
         _ldb.leveldb_iter_get_error(self._ref.ref, ctypes.byref(error))
         _checkError(error)
+
+    def close(self):
+      self._ref.close()
 
 
 def DB(path, bloom_filter_size=10, create_if_missing=False,
