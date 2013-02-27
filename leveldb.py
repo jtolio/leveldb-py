@@ -404,6 +404,12 @@ class DBInterface(object):
         self._prefix = prefix
         self._allow_close = allow_close
 
+    def __enter__(self):
+      return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+      self.close()
+
     def close(self):
         if self._allow_close:
             self._impl.close()
