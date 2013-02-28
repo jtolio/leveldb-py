@@ -373,10 +373,14 @@ class Iterator(object):
             self.stepForward()
 
     def close(self):
-      self._impl.close()
+        self._impl.close()
 
 
 class WriteBatch(object):
+
+    """This class is created stand-alone, but then written to some existing
+    DBInterface
+    """
 
     def __init__(self):
         self._puts = {}
@@ -397,6 +401,15 @@ class WriteBatch(object):
 
 class DBInterface(object):
 
+    """This class is created through a few different means:
+
+    Initially, it can be created using either the DB() or MemoryDB()
+    module-level methods. In almost every case, you want the DB() method.
+
+    You can then get new DBInterfaces from an existing DBInterface by calling
+    snapshot or scope.
+    """
+
     __slots__ = ["_impl", "_prefix", "_allow_close"]
 
     def __init__(self, impl, prefix=None, allow_close=False):
@@ -405,10 +418,10 @@ class DBInterface(object):
         self._allow_close = allow_close
 
     def __enter__(self):
-      return self
+        return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-      self.close()
+        self.close()
 
     def close(self):
         if self._allow_close:
@@ -725,7 +738,7 @@ def DB(path, bloom_filter_size=10, create_if_missing=False,
        error_if_exists=False, paranoid_checks=False,
        write_buffer_size=(4 * 1024 * 1024), max_open_files=1000,
        block_cache_size=(8 * 1024 * 1024), block_size=(4 * 1024)):
-    """This is the expected way to open a database
+    """This is the expected way to open a database. Returns a DBInterface.
     """
 
     filter_policy = _PointerRef(
