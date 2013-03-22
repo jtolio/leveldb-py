@@ -25,6 +25,7 @@ import os
 import sys
 import time
 import shutil
+import random
 import leveldb
 import argparse
 import tempfile
@@ -256,6 +257,37 @@ class LevelDBTestCasesMixIn(object):
 
     def testScopedDB_WriteBatch(self):
         self.testScopedDB(use_writebatch=True)
+
+    def testOpaqueWriteBatch(self):
+        db = self.db_class(self.db_path, create_if_missing=True)
+        scoped_db = db.scope("prefix2_")
+        scopes = [db.scope("prefix1_"), scoped_db, scoped_db.scope("a_"),
+                  scoped_db.scope("b_"), db.scope("prefix3_")]
+        batch = db.newBatch()
+        for i, scope in enumerate(scopes):
+            scope.putTo(batch, str(i), str(i))
+        db.write(batch)
+        for i, scope in enumerate(scopes):
+            self.assertEquals(scope.get(str(i)), str(i))
+        batch.clear()
+        for i, scope in enumerate(scopes):
+            scope.deleteFrom(batch, str(i))
+        db.write(batch)
+        for i, scope in enumerate(scopes):
+            self.assertEquals(scope.get(str(i)), None)
+        # same effect when done through any scope
+        batch = random.choice(scopes).newBatch()
+        for i, scope in enumerate(scopes):
+            scope.putTo(batch, str(i), str(2 * (i + 1)))
+        random.choice(scopes).write(batch)
+        for i, scope in enumerate(scopes):
+            self.assertEquals(scope.get(str(i)), str(2 * (i + 1)))
+        batch.clear()
+        for i, scope in enumerate(scopes):
+            scope.deleteFrom(batch, str(i))
+        random.choice(scopes).write(batch)
+        for i, scope in enumerate(scopes):
+            self.assertEquals(scope.get(str(i)), None)
 
     def testKeysWithZeroBytes(self):
         db = self.db_class(self.db_path, create_if_missing=True)

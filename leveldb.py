@@ -376,15 +376,31 @@ class Iterator(object):
         self._impl.close()
 
 
-class WriteBatch(object):
+class _OpaqueWriteBatch(object):
+
+    """This is an opaque write batch that must be written to using the putTo
+    and deleteFrom methods on DBInterface.
+    """
+
+    def __init__(self):
+        self._puts = {}
+        self._deletes = set()
+        self._private = True
+
+    def clear(self):
+        self._puts = {}
+        self._deletes = set()
+
+
+class WriteBatch(_OpaqueWriteBatch):
 
     """This class is created stand-alone, but then written to some existing
     DBInterface
     """
 
     def __init__(self):
-        self._puts = {}
-        self._deletes = set()
+        _OpaqueWriteBatch.__init__(self)
+        self._private = False
 
     def put(self, key, val):
         self._deletes.discard(key)
@@ -393,10 +409,6 @@ class WriteBatch(object):
     def delete(self, key):
         self._puts.pop(key, None)
         self._deletes.add(key)
-
-    def clear(self):
-        self._puts = {}
-        self._deletes = set()
 
 
 class DBInterface(object):
@@ -427,15 +439,36 @@ class DBInterface(object):
         if self._allow_close:
             self._impl.close()
 
+    def newBatch(self):
+        return _OpaqueWriteBatch()
+
     def put(self, key, val, sync=False):
         if self._prefix is not None:
             key = self._prefix + key
         self._impl.put(key, val, sync=sync)
 
+    # pylint: disable=W0212
+    def putTo(self, batch, key, val):
+        if not batch._private:
+            raise ValueError("batch not from DBInterface.newBatch")
+        if self._prefix is not None:
+            key = self._prefix + key
+        batch._deletes.discard(key)
+        batch._puts[key] = val
+
     def delete(self, key, sync=False):
         if self._prefix is not None:
             key = self._prefix + key
         self._impl.delete(key, sync=sync)
+
+    # pylint: disable=W0212
+    def deleteFrom(self, batch, key):
+        if not batch._private:
+            raise ValueError("batch not from DBInterface.newBatch")
+        if self._prefix is not None:
+            key = self._prefix + key
+        batch._puts.pop(key, None)
+        batch._deletes.add(key)
 
     def get(self, key, verify_checksums=False, fill_cache=True):
         if self._prefix is not None:
@@ -445,8 +478,8 @@ class DBInterface(object):
 
     # pylint: disable=W0212
     def write(self, batch, sync=False):
-        if self._prefix is not None:
-            unscoped_batch = WriteBatch()
+        if self._prefix is not None and not batch._private:
+            unscoped_batch = _OpaqueWriteBatch()
             for key, value in batch._puts.iteritems():
                 unscoped_batch._puts[self._prefix + key] = value
             for key in batch._deletes:
