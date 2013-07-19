@@ -714,6 +714,21 @@ class LevelDBIteratorTestMixIn(object):
         self.assertEqual(it.value(), "1")
         db.close()
 
+    def test_seek_last_with_leading_zero_prefix(self):
+        db = self.db_class(os.path.join(self.db_path, "1"),
+                create_if_missing=True)
+        db.put("\x00\x00\x00", "1")
+        db.put("\x00\x00\xff", "2")
+        db.put("\x00\x01\x00", "3")
+        db.put("\x01\x01\x00", "4")
+        self.assertEqual(db.iterator(prefix="\x00\x00\x00").seekLast().value(),
+                         "1")
+        self.assertEqual(db.iterator(prefix="\x00\x00").seekLast().value(),
+                         "2")
+        self.assertEqual(db.iterator(prefix="\x00").seekLast().value(),
+                         "3")
+        db.close()
+
 
 class LevelDBIteratorTest(LevelDBIteratorTestMixIn, unittest.TestCase):
 

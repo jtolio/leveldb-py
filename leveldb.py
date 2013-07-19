@@ -252,10 +252,9 @@ class Iterator(object):
 
         # we have a prefix. see if there's anything after our prefix.
         # there's probably a much better way to calculate the next prefix.
-        next_prefix = hex(long(self._prefix.encode('hex'), 16) + 1
-                )[2:].rstrip("L")
-        if len(next_prefix) % 2 != 0:
-            next_prefix = "0" + next_prefix
+        hex_prefix = self._prefix.encode('hex')
+        next_prefix = hex(long(hex_prefix, 16) + 1)[2:].rstrip("L")
+        next_prefix = next_prefix.rjust(len(hex_prefix), "0")
         next_prefix = next_prefix.decode("hex").rstrip("\x00")
         self._impl.seek(next_prefix)
         if self._impl.valid():
