@@ -421,12 +421,18 @@ class DBInterface(object):
     snapshot or scope.
     """
 
-    __slots__ = ["_impl", "_prefix", "_allow_close"]
+    __slots__ = ["_impl", "_prefix", "_allow_close", "_default_sync",
+                 "_default_verify_checksums", "_default_fill_cache"]
 
-    def __init__(self, impl, prefix=None, allow_close=False):
+    def __init__(self, impl, prefix=None, allow_close=False,
+                 default_sync=False, default_verify_checksums=False,
+                 default_fill_cache=True):
         self._impl = impl
         self._prefix = prefix
         self._allow_close = allow_close
+        self._default_sync = default_sync
+        self._default_verify_checksums = default_verify_checksums
+        self._default_fill_cache = default_fill_cache
 
     def __enter__(self):
         return self
@@ -441,7 +447,9 @@ class DBInterface(object):
     def newBatch(self):
         return _OpaqueWriteBatch()
 
-    def put(self, key, val, sync=False):
+    def put(self, key, val, sync=None):
+        if sync is None:
+            sync = self._default_sync
         if self._prefix is not None:
             key = self._prefix + key
         self._impl.put(key, val, sync=sync)
@@ -455,7 +463,9 @@ class DBInterface(object):
         batch._deletes.discard(key)
         batch._puts[key] = val
 
-    def delete(self, key, sync=False):
+    def delete(self, key, sync=None):
+        if sync is None:
+            sync = self._default_sync
         if self._prefix is not None:
             key = self._prefix + key
         self._impl.delete(key, sync=sync)
@@ -469,14 +479,20 @@ class DBInterface(object):
         batch._puts.pop(key, None)
         batch._deletes.add(key)
 
-    def get(self, key, verify_checksums=False, fill_cache=True):
+    def get(self, key, verify_checksums=None, fill_cache=None):
+        if verify_checksums is None:
+            verify_checksums = self._default_verify_checksums
+        if fill_cache is None:
+            fill_cache = self._default_fill_cache
         if self._prefix is not None:
             key = self._prefix + key
         return self._impl.get(key, verify_checksums=verify_checksums,
                 fill_cache=fill_cache)
 
     # pylint: disable=W0212
-    def write(self, batch, sync=False):
+    def write(self, batch, sync=None):
+        if sync is None:
+            sync = self._default_sync
         if self._prefix is not None and not batch._private:
             unscoped_batch = _OpaqueWriteBatch()
             for key, value in batch._puts.iteritems():
@@ -486,8 +502,12 @@ class DBInterface(object):
             batch = unscoped_batch
         return self._impl.write(batch, sync=sync)
 
-    def iterator(self, verify_checksums=False, fill_cache=True, prefix=None,
+    def iterator(self, verify_checksums=None, fill_cache=None, prefix=None,
                  keys_only=False):
+        if verify_checksums is None:
+            verify_checksums = self._default_verify_checksums
+        if fill_cache is None:
+            fill_cache = self._default_fill_cache
         if self._prefix is not None:
             if prefix is None:
                 prefix = self._prefix
@@ -498,9 +518,18 @@ class DBInterface(object):
                                     fill_cache=fill_cache),
                 keys_only=keys_only, prefix=prefix)
 
-    def snapshot(self):
+    def snapshot(self, default_sync=None, default_verify_checksums=None,
+                 default_fill_cache=None):
+        if default_sync is None:
+            default_sync = self._default_sync
+        if default_verify_checksums is None:
+            default_verify_checksums = self._default_verify_checksums
+        if default_fill_cache is None:
+            default_fill_cache = self._default_fill_cache
         return DBInterface(self._impl.snapshot(), prefix=self._prefix,
-                allow_close=False)
+                allow_close=False, default_sync=default_sync,
+                default_verify_checksums=default_verify_checksums,
+                default_fill_cache=default_fill_cache)
 
     def __iter__(self):
         return self.iterator().seekFirst()
@@ -520,28 +549,54 @@ class DBInterface(object):
     def __contains__(self, key):
         return self.has(key)
 
-    def has(self, key, verify_checksums=False, fill_cache=True):
+    def has(self, key, verify_checksums=None, fill_cache=None):
+        if verify_checksums is None:
+            verify_checksums = self._default_verify_checksums
+        if fill_cache is None:
+            fill_cache = self._default_fill_cache
         it = self.iterator(verify_checksums=verify_checksums,
                            fill_cache=fill_cache).seek(key)
         return it.valid() and it.key() == key
 
-    def scope(self, prefix):
+    def scope(self, prefix, default_sync=None, default_verify_checksums=None,
+                 default_fill_cache=None):
+        if default_sync is None:
+            default_sync = self._default_sync
+        if default_verify_checksums is None:
+            default_verify_checksums = self._default_verify_checksums
+        if default_fill_cache is None:
+            default_fill_cache = self._default_fill_cache
         if self._prefix is not None:
             prefix = self._prefix + prefix
-        return DBInterface(self._impl, prefix=prefix, allow_close=False)
+        return DBInterface(self._impl, prefix=prefix, allow_close=False,
+                default_sync=default_sync,
+                default_verify_checksums=default_verify_checksums,
+                default_fill_cache=default_fill_cache)
 
     def range(self, start_key=None, end_key=None, start_inclusive=True,
-            end_inclusive=False, verify_checksums=False, fill_cache=True):
+            end_inclusive=False, verify_checksums=None, fill_cache=None):
+        if verify_checksums is None:
+            verify_checksums = self._default_verify_checksums
+        if fill_cache is None:
+            fill_cache = self._default_fill_cache
         return self.iterator(verify_checksums=verify_checksums,
                 fill_cache=fill_cache).range(start_key=start_key,
                         end_key=end_key, start_inclusive=start_inclusive,
                         end_inclusive=end_inclusive)
 
-    def keys(self, verify_checksums=False, fill_cache=True, prefix=None):
+    def keys(self, verify_checksums=None, fill_cache=None, prefix=None):
+        if verify_checksums is None:
+            verify_checksums = self._default_verify_checksums
+        if fill_cache is None:
+            fill_cache = self._default_fill_cache
         return self.iterator(verify_checksums=verify_checksums,
                 fill_cache=fill_cache, prefix=prefix).seekFirst().keys()
 
-    def values(self, verify_checksums=False, fill_cache=True, prefix=None):
+    def values(self, verify_checksums=None, fill_cache=None, prefix=None):
+        if verify_checksums is None:
+            verify_checksums = self._default_verify_checksums
+        if fill_cache is None:
+            fill_cache = self._default_fill_cache
         return self.iterator(verify_checksums=verify_checksums,
                 fill_cache=fill_cache, prefix=prefix).seekFirst().values()
 
@@ -769,7 +824,9 @@ class _IteratorDbImpl(object):
 def DB(path, bloom_filter_size=10, create_if_missing=False,
        error_if_exists=False, paranoid_checks=False,
        write_buffer_size=(4 * 1024 * 1024), max_open_files=1000,
-       block_cache_size=(8 * 1024 * 1024), block_size=(4 * 1024)):
+       block_cache_size=(8 * 1024 * 1024), block_size=(4 * 1024),
+       default_sync=False, default_verify_checksums=False,
+       default_fill_cache=True):
     """This is the expected way to open a database. Returns a DBInterface.
     """
 
@@ -801,7 +858,9 @@ def DB(path, bloom_filter_size=10, create_if_missing=False,
     cache.addReferrer(db)
 
     return DBInterface(_LevelDBImpl(db, other_objects=(filter_policy, cache)),
-                       allow_close=True)
+                       allow_close=True, default_sync=default_sync,
+                       default_verify_checksums=default_verify_checksums,
+                       default_fill_cache=default_fill_cache)
 
 
 class _LevelDBImpl(object):
