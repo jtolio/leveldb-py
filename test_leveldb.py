@@ -375,7 +375,7 @@ class LevelDBTestCasesMixIn(object):
 
 class LevelDBTestCases(LevelDBTestCasesMixIn, unittest.TestCase):
 
-    db_class = staticmethod(leveldb.DB)
+    db_class = staticmethod(leveldb.CtypesDB)
 
     def testInit(self):
         self.assertRaises(leveldb.Error, self.db_class, self.db_path)
@@ -483,6 +483,11 @@ class LevelDBTestCases(LevelDBTestCasesMixIn, unittest.TestCase):
 class MemLevelDBTestCases(LevelDBTestCasesMixIn, unittest.TestCase):
 
     db_class = staticmethod(leveldb.MemoryDB)
+
+
+class CythonLevelDBTestCases(LevelDBTestCases):
+
+    db_class = staticmethod(leveldb.CythonDB)
 
 
 class LevelDBIteratorTestMixIn(object):
@@ -747,7 +752,7 @@ class LevelDBIteratorTestMixIn(object):
 
 class LevelDBIteratorTest(LevelDBIteratorTestMixIn, unittest.TestCase):
 
-    db_class = staticmethod(leveldb.DB)
+    db_class = staticmethod(leveldb.CtypesDB)
 
     def testApproximateSizes(self):
         db = self.db_class(self.db_path, create_if_missing=True)
@@ -778,6 +783,11 @@ class LevelDBIteratorTest(LevelDBIteratorTestMixIn, unittest.TestCase):
 class MemLevelDBIteratorTest(LevelDBIteratorTestMixIn, unittest.TestCase):
 
     db_class = staticmethod(leveldb.MemoryDB)
+
+
+class CythonLevelDBIteratorTest(LevelDBIteratorTest):
+
+    db_class = staticmethod(leveldb.CythonDB)
 
 
 def main():

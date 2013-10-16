@@ -1,3 +1,9 @@
+python-leveldbpy (0.2-cython) unstable; urgency=low
+
+  * Cython version
+
+ -- JT Olds <jt@spacemonkey.com>  Thu, 31 Oct 2013 15:40:21 -0600
+
 python-leveldbpy (0.1) unstable; urgency=low
 
   * Initial release.
