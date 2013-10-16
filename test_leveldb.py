@@ -729,6 +729,21 @@ class LevelDBIteratorTestMixIn(object):
                          "3")
         db.close()
 
+    def test_scoped_then_iterate(self):
+        db = self.db_class(os.path.join(self.db_path, "1"),
+                create_if_missing=True)
+        for i in range(10):
+            db.put("%dfoo" % i, "bar%d" % i)
+        it = db.iterator(prefix="5").seekFirst()
+        self.assertTrue(it.valid())
+        self.assertEqual(it.key(), "foo")
+        self.assertEqual(it.value(), "bar5")
+
+        for id_, (k, v) in enumerate(it):
+            self.assertEqual(id_, 0)
+            self.assertEqual(k, "foo")
+            self.assertEqual(v, "bar5")
+
 
 class LevelDBIteratorTest(LevelDBIteratorTestMixIn, unittest.TestCase):
 
