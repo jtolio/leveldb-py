@@ -550,13 +550,8 @@ class DBInterface(object):
         return self.has(key)
 
     def has(self, key, verify_checksums=None, fill_cache=None):
-        if verify_checksums is None:
-            verify_checksums = self._default_verify_checksums
-        if fill_cache is None:
-            fill_cache = self._default_fill_cache
-        it = self.iterator(verify_checksums=verify_checksums,
-                           fill_cache=fill_cache).seek(key)
-        return it.valid() and it.key() == key
+        return self.get(key, verify_checksums=verify_checksums,
+                fill_cache=fill_cache) is not None
 
     def scope(self, prefix, default_sync=None, default_verify_checksums=None,
                  default_fill_cache=None):
