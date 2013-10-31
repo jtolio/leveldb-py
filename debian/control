@@ -1,0 +1,16 @@
+Source: python-leveldbpy
+Section: python
+Priority: optional
+Maintainer: JT Olds <jt@spacemonkey.com>
+Build-Depends: debhelper (>= 8), python, python2.7, libleveldb-dev
+Standards-Version: 3.9.3
+Vcs-Git: https://code.google.com/p/leveldb-py/
+Vcs-Browser: https://code.google.com/p/leveldb-py/
+X-Python-Version: 2.7
+
+Package: python-leveldbpy
+Architecture: all
+Conflicts: python-leveldb, py-leveldb
+Depends: ${shlibs:Depends}, ${misc:Depends}, python (>= 2.7), python (<< 2.8),
+  python2.7, libleveldb1
+Description: LevelDB bindings for Python
