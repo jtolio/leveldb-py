@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 #
-# Copyright (C) 2012 Space Monkey, Inc.
+# Copyright (C) 2013 Space Monkey, Inc.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -21,44 +21,20 @@
 # SOFTWARE.
 #
 
-"""
-    LevelDB Python interface via C-Types.
-    http://code.google.com/p/leveldb-py/
-
-    Missing still (but in progress):
-      * custom comparators, filter policies, caches
-
-    This interface requires nothing more than the leveldb shared object with
-    the C api being installed.
-
-    Now requires LevelDB 1.6 or newer.
-
-    For most usages, you are likely to only be interested in the "DB" and maybe
-    the "WriteBatch" classes for construction. The other classes are helper
-    classes that you may end up using as part of those two root classes.
-
-     * DBInterface - This class wraps a LevelDB. Created by either the DB or
-            MemoryDB constructors
-     * Iterator - this class is created by calls to DBInterface::iterator.
-            Supports range requests, seeking, prefix searching, etc
-     * WriteBatch - this class is a standalone object. You can perform writes
-            and deletes on it, but nothing happens to your database until you
-            write the writebatch to the database with DB::write
-"""
-
 __author__ = "JT Olds"
 __email__ = "jt@spacemonkey.com"
 
-import weakref
+from .convenience import _makeDBFromImpl, Error
 
-from .convenience import DBInterface, Error
 
 cdef extern from "stdint.h":
     ctypedef unsigned long long uint64_t
 
+
 cdef extern from "Python.h":
     void* PyMem_Malloc(size_t n)
     void PyMem_Free(void *p)
+
 
 cdef extern from "leveldb/c.h":
     ctypedef struct leveldb_t:
@@ -206,12 +182,15 @@ cdef extern from "leveldb/c.h":
     void leveldb_options_set_paranoid_checks(
         leveldb_options_t*, unsigned char) nogil
     void leveldb_options_set_env(leveldb_options_t*, leveldb_env_t*) nogil
-    void leveldb_options_set_info_log(leveldb_options_t*, leveldb_logger_t*) nogil
-    void leveldb_options_set_write_buffer_size(leveldb_options_t*, size_t) nogil
+    void leveldb_options_set_info_log(
+        leveldb_options_t*, leveldb_logger_t*) nogil
+    void leveldb_options_set_write_buffer_size(
+        leveldb_options_t*, size_t) nogil
     void leveldb_options_set_max_open_files(leveldb_options_t*, int) nogil
     void leveldb_options_set_cache(leveldb_options_t*, leveldb_cache_t*) nogil
     void leveldb_options_set_block_size(leveldb_options_t*, size_t) nogil
-    void leveldb_options_set_block_restart_interval(leveldb_options_t*, int) nogil
+    void leveldb_options_set_block_restart_interval(
+        leveldb_options_t*, int) nogil
 
     void leveldb_options_set_compression(leveldb_options_t*, int) nogil
 
@@ -272,47 +251,6 @@ cdef extern from "leveldb/c.h":
     int leveldb_minor_version() nogil
 
 
-cdef class _CPointerRef:
-
-    cdef void* ref
-    cdef void (*_close)(void*)
-    cdef object _referrers
-    cdef object __weakref__
-
-    def __init__(self):
-        self.ref = NULL
-        self._close = NULL
-        self._referrers = weakref.WeakValueDictionary()
-
-    cdef init(self, void* ref, void (*close_cb)(void*)):
-        self.ref = ref
-        self._close = close_cb
-
-    cdef addReferrer(self, object referrer):
-        self._referrers[id(referrer)] = referrer
-
-    cpdef close(self):
-        ref, self.ref = self.ref, NULL
-        close, self._close = self._close, NULL
-        referrers = self._referrers
-        self._referrers = weakref.WeakValueDictionary()
-        for referrer in referrers.valuerefs():
-            referrer = referrer()
-            if referrer is not None:
-                referrer.close()
-        if ref != NULL and close != NULL:
-            close(ref)
-
-    def __del__(self):
-        self.close()
-
-
-cdef _CPointerRef newPointerRef(void* ref, void (*close_cb)(void*)):
-    o = _CPointerRef()
-    o.init(ref, close_cb)
-    return o
-
-
 cdef _checkError(char* error):
     cdef bytes str_copy
     if error:
@@ -323,59 +261,67 @@ cdef _checkError(char* error):
 
 cdef class _IteratorDbImpl:
 
-    cdef _CPointerRef _ref
+    cdef leveldb_iterator_t* ref
 
-    def __init__(self, _CPointerRef iterator_ref):
-        self._ref = iterator_ref
+    def __cinit__(self):
+        self.ref = NULL
+
+    cdef _IteratorDbImpl init(self, leveldb_iterator_t* ref):
+        self.ref = ref
+        return self
 
     cpdef valid(self):
-        if leveldb_iter_valid(<leveldb_iterator_t*>self._ref.ref):
+        if leveldb_iter_valid(self.ref):
             return True
         return False
 
-    cpdef key(self):
+    cpdef bytes key(self):
         cdef size_t length = 0
         cdef bytes val
-        cdef char* val_p = leveldb_iter_key(<leveldb_iterator_t*>self._ref.ref,
-            &length)
+        cdef char* val_p = leveldb_iter_key(self.ref, &length)
         val = val_p[:length]
         return val
 
-    cpdef val(self):
+    cpdef bytes val(self):
         cdef size_t length = 0
         cdef bytes val
-        cdef char* val_p = leveldb_iter_value(
-            <leveldb_iterator_t*>self._ref.ref, &length)
+        cdef char* val_p = leveldb_iter_value(self.ref, &length)
         val = val_p[:length]
         return val
 
     cpdef seek(self, bytes key):
-        leveldb_iter_seek(<leveldb_iterator_t*>self._ref.ref, key, len(key))
+        leveldb_iter_seek(self.ref, key, len(key))
         self._checkError()
 
     cpdef seekFirst(self):
-        leveldb_iter_seek_to_first(<leveldb_iterator_t*>self._ref.ref)
+        leveldb_iter_seek_to_first(self.ref)
         self._checkError()
 
     cpdef seekLast(self):
-        leveldb_iter_seek_to_last(<leveldb_iterator_t*>self._ref.ref)
+        leveldb_iter_seek_to_last(self.ref)
         self._checkError()
 
     cpdef prev(self):
-        leveldb_iter_prev(<leveldb_iterator_t*>self._ref.ref)
+        leveldb_iter_prev(self.ref)
         self._checkError()
 
     cpdef next(self):
-        leveldb_iter_next(<leveldb_iterator_t*>self._ref.ref)
+        leveldb_iter_next(self.ref)
         self._checkError()
 
     cdef _checkError(self):
         cdef char* error = NULL
-        leveldb_iter_get_error(<leveldb_iterator_t*>self._ref.ref, &error)
+        leveldb_iter_get_error(self.ref, &error)
         _checkError(error)
 
     cpdef close(self):
-        self._ref.close()
+        cdef leveldb_iterator_t* ref = self.ref
+        self.ref = NULL
+        if ref != NULL:
+            leveldb_iter_destroy(ref)
+
+    def __dealloc__(self):
+        self.close()
 
 
 def CythonDB(path, bloom_filter_size=10, create_if_missing=False,
@@ -387,92 +333,112 @@ def CythonDB(path, bloom_filter_size=10, create_if_missing=False,
     """This is the expected way to open a database. Returns a DBInterface.
     """
 
-    cdef _CPointerRef filter_policy = newPointerRef(
-            <void*>leveldb_filterpolicy_create_bloom(bloom_filter_size),
-            <void(*)(void*)>leveldb_filterpolicy_destroy)
-    cdef _CPointerRef cache = newPointerRef(
-            <void*>leveldb_cache_create_lru(block_cache_size),
-            <void(*)(void*)>leveldb_cache_destroy)
+    cdef leveldb_filterpolicy_t* filter_policy = \
+            leveldb_filterpolicy_create_bloom(bloom_filter_size)
+    cdef leveldb_cache_t* cache = leveldb_cache_create_lru(
+            block_cache_size)
 
     options = leveldb_options_create()
-    leveldb_options_set_filter_policy(options,
-            <leveldb_filterpolicy_t*>filter_policy.ref)
+    leveldb_options_set_filter_policy(options, filter_policy)
     leveldb_options_set_create_if_missing(options, create_if_missing)
     leveldb_options_set_error_if_exists(options, error_if_exists)
     leveldb_options_set_paranoid_checks(options, paranoid_checks)
     leveldb_options_set_write_buffer_size(options, write_buffer_size)
     leveldb_options_set_max_open_files(options, max_open_files)
-    leveldb_options_set_cache(options, <leveldb_cache_t*>cache.ref)
+    leveldb_options_set_cache(options, cache)
     leveldb_options_set_block_size(options, block_size)
 
     cdef char* error = NULL
-    cdef leveldb_t* db = leveldb_open(options, path, &error)
+    cdef leveldb_t* db_ptr = leveldb_open(options, path, &error)
     leveldb_options_destroy(options)
+    db = _LevelDBImpl().init(db_ptr, filter_policy, cache, NULL)
+
+    # okay, now all the allocated memory is in managed objects, safe to throw
+    # errors
     _checkError(error)
 
-    py_db = newPointerRef(<void*>db, <void(*)(void*)>leveldb_close)
-    filter_policy.addReferrer(py_db)
-    cache.addReferrer(py_db)
-
-    return DBInterface(_LevelDBImpl(py_db, other_objects=(filter_policy, cache)),
-                       allow_close=True, default_sync=default_sync,
-                       default_verify_checksums=default_verify_checksums,
-                       default_fill_cache=default_fill_cache)
+    return _makeDBFromImpl(
+            db, default_sync=default_sync,
+            default_verify_checksums=default_verify_checksums,
+            default_fill_cache=default_fill_cache)
 
 
 cdef class _LevelDBImpl:
 
-    cdef object _objs
-    cdef _CPointerRef _db
-    cdef _CPointerRef _snapshot
+    cdef leveldb_t* _db
+    cdef leveldb_filterpolicy_t* _filterpolicy
+    cdef leveldb_cache_t* _cache
+    cdef leveldb_snapshot_t* _snapshot
 
-    def __init__(self, db_ref, snapshot_ref=None, other_objects=()):
-        self._objs = other_objects
-        self._db = db_ref
-        self._snapshot = snapshot_ref
+    def __cinit__(self):
+        self._db = NULL
+        self._filterpolicy = NULL
+        self._cache = NULL
+        self._snapshot = NULL
+
+    cdef _LevelDBImpl init(
+            self, leveldb_t* db, leveldb_filterpolicy_t* filterpolicy,
+            leveldb_cache_t* cache, leveldb_snapshot_t* snapshot):
+        self._db = db
+        self._filterpolicy = filterpolicy
+        self._cache = cache
+        self._snapshot = snapshot
+        return self
 
     cpdef close(self):
-        db, self._db = self._db, None
-        objs, self._objs = self._objs, ()
-        if db is not None:
-            db.close()
-        for obj in objs:
-            obj.close()
+        cdef leveldb_t* db = self._db
+        self._db = NULL
+        cdef leveldb_filterpolicy_t* filterpolicy = self._filterpolicy
+        self._filterpolicy = NULL
+        cdef leveldb_cache_t* cache = self._cache
+        self._cache = NULL
+        cdef leveldb_snapshot_t* snapshot = self._snapshot
+        self._snapshot = NULL
+
+        if db != NULL:
+            if snapshot != NULL:
+                leveldb_release_snapshot(db, snapshot)
+            else:
+                leveldb_close(db)
+
+        if filterpolicy != NULL:
+            leveldb_filterpolicy_destroy(filterpolicy)
+        if cache != NULL:
+            leveldb_cache_destroy(cache)
+
+    def __dealloc__(self):
+        self.close()
 
     cpdef put(self, bytes key, bytes val, sync=False):
-        if self._snapshot is not None:
+        if self._snapshot != NULL:
             raise TypeError("cannot put on leveldb snapshot")
         cdef char* error = NULL
         options = leveldb_writeoptions_create()
         leveldb_writeoptions_set_sync(options, sync)
-        leveldb_put(<leveldb_t*>self._db.ref, options, key, len(key), val,
-                len(val), &error)
+        leveldb_put(self._db, options, key, len(key), val, len(val), &error)
         leveldb_writeoptions_destroy(options)
         _checkError(error)
 
     cpdef delete(self, bytes key, sync=False):
-        if self._snapshot is not None:
+        if self._snapshot != NULL:
             raise TypeError("cannot delete on leveldb snapshot")
         cdef char* error = NULL
         options = leveldb_writeoptions_create()
         leveldb_writeoptions_set_sync(options, sync)
-        leveldb_delete(<leveldb_t*>self._db.ref, options, key, len(key),
-                &error)
+        leveldb_delete(self._db, options, key, len(key), &error)
         leveldb_writeoptions_destroy(options)
         _checkError(error)
 
-    cpdef get(self, bytes key, verify_checksums=False, fill_cache=True):
+    cpdef bytes get(self, bytes key, verify_checksums=False, fill_cache=True):
         cdef char* error = NULL
         options = leveldb_readoptions_create()
         leveldb_readoptions_set_verify_checksums(options, verify_checksums)
         leveldb_readoptions_set_fill_cache(options, fill_cache)
-        if self._snapshot is not None:
-            leveldb_readoptions_set_snapshot(options,
-                    <leveldb_snapshot_t*>self._snapshot.ref)
+        if self._snapshot != NULL:
+            leveldb_readoptions_set_snapshot(options, self._snapshot)
         cdef size_t size = 0
         cdef bytes val
-        val_p = leveldb_get(<leveldb_t*>self._db.ref, options, key, len(key),
-                &size, &error)
+        val_p = leveldb_get(self._db, options, key, len(key), &size, &error)
         if val_p:
             val = val_p[:size]
             leveldb_free(val_p)
@@ -483,7 +449,7 @@ cdef class _LevelDBImpl:
         return val
 
     cpdef write(self, batch, sync=False):
-        if self._snapshot is not None:
+        if self._snapshot != NULL:
             raise TypeError("cannot delete on leveldb snapshot")
         real_batch = leveldb_writebatch_create()
         for key, val in batch._puts.iteritems():
@@ -493,27 +459,24 @@ cdef class _LevelDBImpl:
         cdef char* error = NULL
         options = leveldb_writeoptions_create()
         leveldb_writeoptions_set_sync(options, sync)
-        leveldb_write(<leveldb_t*>self._db.ref, options, real_batch, &error)
+        leveldb_write(self._db, options, real_batch, &error)
         leveldb_writeoptions_destroy(options)
         leveldb_writebatch_destroy(real_batch)
         _checkError(error)
 
-    cpdef iterator(self, verify_checksums=False, fill_cache=True):
+    cpdef _IteratorDbImpl iterator(
+            self, verify_checksums=False, fill_cache=True):
         options = leveldb_readoptions_create()
-        if self._snapshot is not None:
-            leveldb_readoptions_set_snapshot(options,
-                    <leveldb_snapshot_t*>self._snapshot.ref)
+        if self._snapshot != NULL:
+            leveldb_readoptions_set_snapshot(options, self._snapshot)
         leveldb_readoptions_set_verify_checksums(options, verify_checksums)
         leveldb_readoptions_set_fill_cache(options, fill_cache)
-        it_ref = newPointerRef(
-                <void*>leveldb_create_iterator(<leveldb_t*>self._db.ref,
-                    options), <void(*)(void*)>leveldb_iter_destroy)
+        it = _IteratorDbImpl().init(leveldb_create_iterator(self._db, options))
         leveldb_readoptions_destroy(options)
-        self._db.addReferrer(it_ref)
-        return _IteratorDbImpl(it_ref)
+        return it
 
     def approximateDiskSizes(self, *ranges):
-        if self._snapshot is not None:
+        if self._snapshot != NULL:
             raise TypeError("cannot calculate disk sizes on leveldb snapshot")
         assert len(ranges) > 0
 
@@ -540,15 +503,16 @@ cdef class _LevelDBImpl:
                 raise MemoryError()
 
             for i, range_ in enumerate(ranges):
-                assert isinstance(range_, tuple) and len(range_) == 2
-                assert isinstance(range_[0], str) and isinstance(range_[1], str)
+                assert isinstance(range_, tuple)
+                assert len(range_) == 2
+                assert isinstance(range_[0], str)
+                assert isinstance(range_[1], str)
                 start_keys[i] = range_[0]
                 end_keys[i] = range_[1]
                 start_lens[i], end_lens[i] = len(range_[0]), len(range_[1])
 
-            leveldb_approximate_sizes(<leveldb_t*>self._db.ref,
-                    len(ranges), start_keys, start_lens, end_keys, end_lens,
-                    sizes)
+            leveldb_approximate_sizes(self._db, len(ranges), start_keys,
+                    start_lens, end_keys, end_lens, sizes)
 
             return [sizes[i] for i in xrange(len(ranges))]
         finally:
@@ -564,13 +528,11 @@ cdef class _LevelDBImpl:
                 PyMem_Free(sizes)
 
     cpdef compactRange(self, bytes start_key, bytes end_key):
-        leveldb_compact_range(<leveldb_t*>self._db.ref, start_key,
-                len(start_key), end_key, len(end_key))
+        leveldb_compact_range(self._db, start_key, len(start_key), end_key,
+                len(end_key))
 
-    cpdef snapshot(self):
-        snapshot_ref = newPointerRef(
-                <void*>leveldb_create_snapshot(<leveldb_t*>self._db.ref),
-                <void(*)(void*)>leveldb_release_snapshot)
-        self._db.addReferrer(snapshot_ref)
-        return _LevelDBImpl(self._db, snapshot_ref=snapshot_ref,
-                            other_objects=self._objs)
+    cpdef _LevelDBImpl snapshot(self):
+        if self._snapshot != NULL:
+            return self
+        return _LevelDBImpl().init(
+                self._db, NULL, NULL, leveldb_create_snapshot(self._db))

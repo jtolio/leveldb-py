@@ -23,39 +23,15 @@
 
 from __future__ import absolute_import
 
-"""
-    LevelDB Python interface via C-Types.
-    http://code.google.com/p/leveldb-py/
-
-    Missing still (but in progress):
-      * custom comparators, filter policies, caches
-
-    This interface requires nothing more than the leveldb shared object with
-    the C api being installed.
-
-    Now requires LevelDB 1.6 or newer.
-
-    For most usages, you are likely to only be interested in the "DB" and maybe
-    the "WriteBatch" classes for construction. The other classes are helper
-    classes that you may end up using as part of those two root classes.
-
-     * DBInterface - This class wraps a LevelDB. Created by either the DB or
-            MemoryDB constructors
-     * Iterator - this class is created by calls to DBInterface::iterator.
-            Supports range requests, seeking, prefix searching, etc
-     * WriteBatch - this class is a standalone object. You can perform writes
-            and deletes on it, but nothing happens to your database until you
-            write the writebatch to the database with DB::write
-"""
-
 __author__ = "JT Olds"
 __email__ = "jt@spacemonkey.com"
 
+
 import ctypes
 import ctypes.util
-import weakref
 
-from .convenience import DBInterface, Error
+from .convenience import _makeDBFromImpl, Error
+
 
 _ldb = ctypes.CDLL(ctypes.util.find_library('leveldb'))
 
@@ -195,33 +171,6 @@ _ldb.leveldb_free.argtypes = [ctypes.c_void_p]
 _ldb.leveldb_free.restype = None
 
 
-class _PointerRef(object):
-
-    __slots__ = ["ref", "_close", "_referrers", "__weakref__"]
-
-    def __init__(self, ref, close_cb):
-        self.ref = ref
-        self._close = close_cb
-        self._referrers = weakref.WeakValueDictionary()
-
-    def addReferrer(self, referrer):
-        self._referrers[id(referrer)] = referrer
-
-    def close(self):
-        ref, self.ref = self.ref, None
-        close, self._close = self._close, None
-        referrers = self._referrers
-        self._referrers = weakref.WeakValueDictionary()
-        for referrer in referrers.valuerefs():
-            referrer = referrer()
-            if referrer is not None:
-                referrer.close()
-        if ref is not None and close is not None:
-            close(ref)
-
-    __del__ = close
-
-
 def _checkError(error):
     if bool(error):
         message = ctypes.string_at(error)
@@ -233,51 +182,56 @@ class _IteratorDbImpl(object):
 
     __slots__ = ["_ref"]
 
-    def __init__(self, iterator_ref):
-        self._ref = iterator_ref
+    def __init__(self, ref):
+        self._ref = ref
 
     def valid(self):
-        return _ldb.leveldb_iter_valid(self._ref.ref)
+        return _ldb.leveldb_iter_valid(self._ref)
 
     def key(self):
         length = ctypes.c_size_t(0)
-        val_p = _ldb.leveldb_iter_key(self._ref.ref, ctypes.byref(length))
+        val_p = _ldb.leveldb_iter_key(self._ref, ctypes.byref(length))
         assert bool(val_p)
         return ctypes.string_at(val_p, length.value)
 
     def val(self):
         length = ctypes.c_size_t(0)
-        val_p = _ldb.leveldb_iter_value(self._ref.ref, ctypes.byref(length))
+        val_p = _ldb.leveldb_iter_value(self._ref, ctypes.byref(length))
         assert bool(val_p)
         return ctypes.string_at(val_p, length.value)
 
     def seek(self, key):
-        _ldb.leveldb_iter_seek(self._ref.ref, key, len(key))
+        _ldb.leveldb_iter_seek(self._ref, key, len(key))
         self._checkError()
 
     def seekFirst(self):
-        _ldb.leveldb_iter_seek_to_first(self._ref.ref)
+        _ldb.leveldb_iter_seek_to_first(self._ref)
         self._checkError()
 
     def seekLast(self):
-        _ldb.leveldb_iter_seek_to_last(self._ref.ref)
+        _ldb.leveldb_iter_seek_to_last(self._ref)
         self._checkError()
 
     def prev(self):
-        _ldb.leveldb_iter_prev(self._ref.ref)
+        _ldb.leveldb_iter_prev(self._ref)
         self._checkError()
 
     def next(self):
-        _ldb.leveldb_iter_next(self._ref.ref)
+        _ldb.leveldb_iter_next(self._ref)
         self._checkError()
 
     def _checkError(self):
         error = ctypes.POINTER(ctypes.c_char)()
-        _ldb.leveldb_iter_get_error(self._ref.ref, ctypes.byref(error))
+        _ldb.leveldb_iter_get_error(self._ref, ctypes.byref(error))
         _checkError(error)
 
     def close(self):
-      self._ref.close()
+        ref, self._ref = self._ref, None
+        if ref is not None:
+            _ldb.leveldb_iter_destroy(ref)
+
+    def __del__(self):
+        self.close()
 
 
 def CtypesDB(path, bloom_filter_size=10, create_if_missing=False,
@@ -289,55 +243,63 @@ def CtypesDB(path, bloom_filter_size=10, create_if_missing=False,
     """This is the expected way to open a database. Returns a DBInterface.
     """
 
-    filter_policy = _PointerRef(
-            _ldb.leveldb_filterpolicy_create_bloom(bloom_filter_size),
-            _ldb.leveldb_filterpolicy_destroy)
-    cache = _PointerRef(
-            _ldb.leveldb_cache_create_lru(block_cache_size),
-            _ldb.leveldb_cache_destroy)
+    filter_policy = _ldb.leveldb_filterpolicy_create_bloom(bloom_filter_size)
+    cache = _ldb.leveldb_cache_create_lru(block_cache_size)
 
     options = _ldb.leveldb_options_create()
-    _ldb.leveldb_options_set_filter_policy(
-            options, filter_policy.ref)
+    _ldb.leveldb_options_set_filter_policy(options, filter_policy)
     _ldb.leveldb_options_set_create_if_missing(options, create_if_missing)
     _ldb.leveldb_options_set_error_if_exists(options, error_if_exists)
     _ldb.leveldb_options_set_paranoid_checks(options, paranoid_checks)
     _ldb.leveldb_options_set_write_buffer_size(options, write_buffer_size)
     _ldb.leveldb_options_set_max_open_files(options, max_open_files)
-    _ldb.leveldb_options_set_cache(options, cache.ref)
+    _ldb.leveldb_options_set_cache(options, cache)
     _ldb.leveldb_options_set_block_size(options, block_size)
 
     error = ctypes.POINTER(ctypes.c_char)()
     db = _ldb.leveldb_open(options, path, ctypes.byref(error))
     _ldb.leveldb_options_destroy(options)
+    db = _LevelDBImpl(db, filter_policy, cache, None)
+
+    # okay, now all the allocated memory is in managed objects, safe to throw
+    # errors
     _checkError(error)
 
-    db = _PointerRef(db, _ldb.leveldb_close)
-    filter_policy.addReferrer(db)
-    cache.addReferrer(db)
-
-    return DBInterface(_LevelDBImpl(db, other_objects=(filter_policy, cache)),
-                       allow_close=True, default_sync=default_sync,
-                       default_verify_checksums=default_verify_checksums,
-                       default_fill_cache=default_fill_cache)
+    return _makeDBFromImpl(
+            db, default_sync=default_sync,
+            default_verify_checksums=default_verify_checksums,
+            default_fill_cache=default_fill_cache)
 
 
 class _LevelDBImpl(object):
 
-    __slots__ = ["_objs", "_db", "_snapshot"]
+    __slots__ = ["_db", "_filterpolicy", "_cache", "_snapshot"]
 
-    def __init__(self, db_ref, snapshot_ref=None, other_objects=()):
-        self._objs = other_objects
-        self._db = db_ref
-        self._snapshot = snapshot_ref
+    def __init__(self, db, filterpolicy, cache, snapshot):
+        self._db = db
+        self._filterpolicy = filterpolicy
+        self._cache = cache
+        self._snapshot = snapshot
 
     def close(self):
         db, self._db = self._db, None
-        objs, self._objs = self._objs, ()
+        filterpolicy, self._filterpolicy = self._filterpolicy, None
+        cache, self._cache = self._cache, None
+        snapshot, self._snapshot = self._snapshot, None
+
         if db is not None:
-            db.close()
-        for obj in objs:
-            obj.close()
+            if snapshot is not None:
+                _ldb.leveldb_release_snapshot(db, snapshot)
+            else:
+                _ldb.leveldb_close(db)
+
+        if filterpolicy is not None:
+            _ldb.leveldb_filterpolicy_destroy(filterpolicy)
+        if cache is not None:
+            _ldb.leveldb_cache_destroy(cache)
+
+    def __del__(self):
+        self.close()
 
     def put(self, key, val, sync=False):
         if self._snapshot is not None:
@@ -345,7 +307,7 @@ class _LevelDBImpl(object):
         error = ctypes.POINTER(ctypes.c_char)()
         options = _ldb.leveldb_writeoptions_create()
         _ldb.leveldb_writeoptions_set_sync(options, sync)
-        _ldb.leveldb_put(self._db.ref, options, key, len(key), val, len(val),
+        _ldb.leveldb_put(self._db, options, key, len(key), val, len(val),
                 ctypes.byref(error))
         _ldb.leveldb_writeoptions_destroy(options)
         _checkError(error)
@@ -356,7 +318,7 @@ class _LevelDBImpl(object):
         error = ctypes.POINTER(ctypes.c_char)()
         options = _ldb.leveldb_writeoptions_create()
         _ldb.leveldb_writeoptions_set_sync(options, sync)
-        _ldb.leveldb_delete(self._db.ref, options, key, len(key),
+        _ldb.leveldb_delete(self._db, options, key, len(key),
                 ctypes.byref(error))
         _ldb.leveldb_writeoptions_destroy(options)
         _checkError(error)
@@ -368,9 +330,9 @@ class _LevelDBImpl(object):
                 verify_checksums)
         _ldb.leveldb_readoptions_set_fill_cache(options, fill_cache)
         if self._snapshot is not None:
-            _ldb.leveldb_readoptions_set_snapshot(options, self._snapshot.ref)
+            _ldb.leveldb_readoptions_set_snapshot(options, self._snapshot)
         size = ctypes.c_size_t(0)
-        val_p = _ldb.leveldb_get(self._db.ref, options, key, len(key),
+        val_p = _ldb.leveldb_get(self._db, options, key, len(key),
                 ctypes.byref(size), ctypes.byref(error))
         if bool(val_p):
             val = ctypes.string_at(val_p, size.value)
@@ -381,7 +343,6 @@ class _LevelDBImpl(object):
         _checkError(error)
         return val
 
-    # pylint: disable=W0212
     def write(self, batch, sync=False):
         if self._snapshot is not None:
             raise TypeError("cannot delete on leveldb snapshot")
@@ -394,7 +355,7 @@ class _LevelDBImpl(object):
         error = ctypes.POINTER(ctypes.c_char)()
         options = _ldb.leveldb_writeoptions_create()
         _ldb.leveldb_writeoptions_set_sync(options, sync)
-        _ldb.leveldb_write(self._db.ref, options, real_batch,
+        _ldb.leveldb_write(self._db, options, real_batch,
                 ctypes.byref(error))
         _ldb.leveldb_writeoptions_destroy(options)
         _ldb.leveldb_writebatch_destroy(real_batch)
@@ -403,16 +364,13 @@ class _LevelDBImpl(object):
     def iterator(self, verify_checksums=False, fill_cache=True):
         options = _ldb.leveldb_readoptions_create()
         if self._snapshot is not None:
-            _ldb.leveldb_readoptions_set_snapshot(options, self._snapshot.ref)
+            _ldb.leveldb_readoptions_set_snapshot(options, self._snapshot)
         _ldb.leveldb_readoptions_set_verify_checksums(
                 options, verify_checksums)
         _ldb.leveldb_readoptions_set_fill_cache(options, fill_cache)
-        it_ref = _PointerRef(
-                _ldb.leveldb_create_iterator(self._db.ref, options),
-                _ldb.leveldb_iter_destroy)
+        it = _IteratorDbImpl(_ldb.leveldb_create_iterator(self._db, options))
         _ldb.leveldb_readoptions_destroy(options)
-        self._db.addReferrer(it_ref)
-        return _IteratorDbImpl(it_ref)
+        return it
 
     def approximateDiskSizes(self, *ranges):
         if self._snapshot is not None:
@@ -429,19 +387,17 @@ class _LevelDBImpl(object):
             start_keys[i] = ctypes.cast(range_[0], ctypes.c_void_p)
             end_keys[i] = ctypes.cast(range_[1], ctypes.c_void_p)
             start_lens[i], end_lens[i] = len(range_[0]), len(range_[1])
-        _ldb.leveldb_approximate_sizes(self._db.ref, len(ranges), start_keys,
+        _ldb.leveldb_approximate_sizes(self._db, len(ranges), start_keys,
                 start_lens, end_keys, end_lens, sizes)
         return list(sizes)
 
     def compactRange(self, start_key, end_key):
         assert isinstance(start_key, str) and isinstance(end_key, str)
-        _ldb.leveldb_compact_range(self._db.ref, start_key, len(start_key),
+        _ldb.leveldb_compact_range(self._db, start_key, len(start_key),
                 end_key, len(end_key))
 
     def snapshot(self):
-        snapshot_ref = _PointerRef(
-                _ldb.leveldb_create_snapshot(self._db.ref),
-                lambda ref: _ldb.leveldb_release_snapshot(self._db.ref, ref))
-        self._db.addReferrer(snapshot_ref)
-        return _LevelDBImpl(self._db, snapshot_ref=snapshot_ref,
-                            other_objects=self._objs)
+        if self._snapshot is not None:
+            return self
+        return _LevelDBImpl(
+                self._db, None, None, _ldb.leveldb_create_snapshot(self._db))

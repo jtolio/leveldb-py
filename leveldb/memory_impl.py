@@ -23,38 +23,13 @@
 
 from __future__ import absolute_import
 
-"""
-    LevelDB Python interface via C-Types.
-    http://code.google.com/p/leveldb-py/
-
-    Missing still (but in progress):
-      * custom comparators, filter policies, caches
-
-    This interface requires nothing more than the leveldb shared object with
-    the C api being installed.
-
-    Now requires LevelDB 1.6 or newer.
-
-    For most usages, you are likely to only be interested in the "DB" and maybe
-    the "WriteBatch" classes for construction. The other classes are helper
-    classes that you may end up using as part of those two root classes.
-
-     * DBInterface - This class wraps a LevelDB. Created by either the DB or
-            MemoryDB constructors
-     * Iterator - this class is created by calls to DBInterface::iterator.
-            Supports range requests, seeking, prefix searching, etc
-     * WriteBatch - this class is a standalone object. You can perform writes
-            and deletes on it, but nothing happens to your database until you
-            write the writebatch to the database with DB::write
-"""
-
 __author__ = "JT Olds"
 __email__ = "jt@spacemonkey.com"
 
 import bisect
 import threading
 
-from .convenience import DBInterface
+from .convenience import _makeDBFromImpl
 
 
 def MemoryDB(*_args, **kwargs):
@@ -68,7 +43,7 @@ def MemoryDB(*_args, **kwargs):
           Python.
     """
     assert kwargs.get("create_if_missing", True)
-    return DBInterface(_MemoryDBImpl(), allow_close=True)
+    return _makeDBFromImpl(_MemoryDBImpl())
 
 
 class _IteratorMemImpl(object):
@@ -151,7 +126,6 @@ class _MemoryDBImpl(object):
                 return self._data[idx][1]
             return None
 
-    # pylint: disable=W0212
     def write(self, batch, **_kwargs):
         if self._is_snapshot:
             raise TypeError("cannot write on leveldb snapshot")

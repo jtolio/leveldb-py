@@ -49,6 +49,7 @@
 __author__ = "JT Olds"
 __email__ = "jt@spacemonkey.com"
 
+import weakref
 from collections import namedtuple
 
 
@@ -57,6 +58,33 @@ Row = namedtuple('Row', 'key value')
 
 class Error(Exception):
     pass
+
+
+class _MemorySafety(object):
+
+    __slots__ = ["ref", "_referrers", "__weakref__"]
+
+    def __init__(self, ref):
+        self.ref = ref
+        self._referrers = weakref.WeakValueDictionary()
+
+    def addReferrer(self, referrer):
+        if self._referrers is None:
+            raise Exception("already closed")
+        self._referrers[id(referrer)] = referrer
+
+    def close(self):
+        ref, self.ref = self.ref, None
+        referrers, self._referrers = self._referrers, None
+        if referrers is not None:
+            for referrer in referrers.valuerefs():
+                referrer = referrer()
+                if referrer is not None:
+                    referrer.close()
+        if ref is not None:
+            ref.close()
+
+    __del__ = close
 
 
 class Iterator(object):
@@ -76,11 +104,13 @@ class Iterator(object):
 
         @rtype: bool
         """
-        valid = self._impl.valid()
-        if not valid or self._prefix is None:
+        ref = self._impl.ref
+        prefix = self._prefix
+        valid = ref.valid()
+        if not valid or prefix is None:
             return valid
-        key = self._impl.key()
-        return key[:len(self._prefix)] == self._prefix
+        key = ref.key()
+        return key[:len(prefix)] == prefix
 
     def seekFirst(self):
         """
@@ -89,10 +119,11 @@ class Iterator(object):
         @return: self
         @rtype: Iter
         """
-        if self._prefix is not None:
-            self._impl.seek(self._prefix)
+        prefix = self._prefix
+        if prefix is not None:
+            self._impl.ref.seek(prefix)
         else:
-            self._impl.seekFirst()
+            self._impl.ref.seekFirst()
         return self
 
     def seekLast(self):
@@ -102,25 +133,27 @@ class Iterator(object):
         @return: self
         @rtype: Iter
         """
+        ref = self._impl.ref
+        prefix = self._prefix
         # if we have no prefix or the last possible prefix of this length, just
         # seek to the last key in the db.
-        if self._prefix is None or self._prefix == "\xff" * len(self._prefix):
-            self._impl.seekLast()
+        if prefix is None or prefix == "\xff" * len(prefix):
+            ref.seekLast()
             return self
 
         # we have a prefix. see if there's anything after our prefix.
         # there's probably a much better way to calculate the next prefix.
-        hex_prefix = self._prefix.encode('hex')
+        hex_prefix = prefix.encode('hex')
         next_prefix = hex(long(hex_prefix, 16) + 1)[2:].rstrip("L")
         next_prefix = next_prefix.rjust(len(hex_prefix), "0")
         next_prefix = next_prefix.decode("hex").rstrip("\x00")
-        self._impl.seek(next_prefix)
-        if self._impl.valid():
+        ref.seek(next_prefix)
+        if ref.valid():
             # there is something after our prefix. we're on it, so step back
-            self._impl.prev()
+            ref.prev()
         else:
             # there is nothing after our prefix, just seek to the last key
-            self._impl.seekLast()
+            ref.seekLast()
         return self
 
     def seek(self, key):
@@ -133,9 +166,10 @@ class Iterator(object):
         @return: self
         @rtype: Iter
         """
-        if self._prefix is not None:
-            key = self._prefix + key
-        self._impl.seek(key)
+        prefix = self._prefix
+        if prefix is not None:
+            key = prefix + key
+        self._impl.ref.seek(key)
         return self
 
     def key(self):
@@ -144,9 +178,10 @@ class Iterator(object):
 
         @rtype: string
         """
-        key = self._impl.key()
-        if self._prefix is not None:
-            return key[len(self._prefix):]
+        prefix = self._prefix
+        key = self._impl.ref.key()
+        if prefix is not None:
+            return key[len(prefix):]
         return key
 
     def value(self):
@@ -155,7 +190,7 @@ class Iterator(object):
 
         @rtype: string
         """
-        return self._impl.val()
+        return self._impl.ref.val()
 
     def __iter__(self):
         return self
@@ -175,7 +210,7 @@ class Iterator(object):
             rv = self.key()
         else:
             rv = Row(self.key(), self.value())
-        self._impl.next()
+        self._impl.ref.next()
         return rv
 
     def prev(self):
@@ -193,16 +228,16 @@ class Iterator(object):
             rv = self.key()
         else:
             rv = Row(self.key(), self.value())
-        self._impl.prev()
+        self._impl.ref.prev()
         return rv
 
     def stepForward(self):
         """Same as next but does not return any data or check for validity"""
-        self._impl.next()
+        self._impl.ref.next()
 
     def stepBackward(self):
         """Same as prev but does not return any data or check for validity"""
-        self._impl.prev()
+        self._impl.ref.prev()
 
     def range(self, start_key=None, end_key=None, start_inclusive=True,
             end_inclusive=False):
@@ -210,7 +245,7 @@ class Iterator(object):
         if start_key is not None:
             self.seek(start_key)
             if not start_inclusive and self.key() == start_key:
-                self._impl.next()
+                self._impl.ref.next()
         else:
             self.seekFirst()
         for row in self:
@@ -268,6 +303,14 @@ class WriteBatch(_OpaqueWriteBatch):
         self._deletes.add(key)
 
 
+def _makeDBFromImpl(impl, default_sync=False, default_verify_checksums=False,
+                    default_fill_cache=True):
+    return DBInterface(_MemorySafety(impl), allow_close=True,
+                       default_sync=default_sync,
+                       default_verify_checksums=default_verify_checksums,
+                       default_fill_cache=default_fill_cache)
+
+
 class DBInterface(object):
 
     """This class is created through a few different means:
@@ -308,32 +351,34 @@ class DBInterface(object):
     def put(self, key, val, sync=None):
         if sync is None:
             sync = self._default_sync
-        if self._prefix is not None:
-            key = self._prefix + key
-        self._impl.put(key, val, sync=sync)
+        prefix = self._prefix
+        if prefix is not None:
+            key = prefix + key
+        self._impl.ref.put(key, val, sync=sync)
 
-    # pylint: disable=W0212
     def putTo(self, batch, key, val):
         if not batch._private:
             raise ValueError("batch not from DBInterface.newBatch")
-        if self._prefix is not None:
-            key = self._prefix + key
+        prefix = self._prefix
+        if prefix is not None:
+            key = prefix + key
         batch._deletes.discard(key)
         batch._puts[key] = val
 
     def delete(self, key, sync=None):
         if sync is None:
             sync = self._default_sync
-        if self._prefix is not None:
-            key = self._prefix + key
-        self._impl.delete(key, sync=sync)
+        prefix = self._prefix
+        if prefix is not None:
+            key = prefix + key
+        self._impl.ref.delete(key, sync=sync)
 
-    # pylint: disable=W0212
     def deleteFrom(self, batch, key):
         if not batch._private:
             raise ValueError("batch not from DBInterface.newBatch")
-        if self._prefix is not None:
-            key = self._prefix + key
+        prefix = self._prefix
+        if prefix is not None:
+            key = prefix + key
         batch._puts.pop(key, None)
         batch._deletes.add(key)
 
@@ -342,23 +387,24 @@ class DBInterface(object):
             verify_checksums = self._default_verify_checksums
         if fill_cache is None:
             fill_cache = self._default_fill_cache
-        if self._prefix is not None:
-            key = self._prefix + key
-        return self._impl.get(key, verify_checksums=verify_checksums,
+        prefix = self._prefix
+        if prefix is not None:
+            key = prefix + key
+        return self._impl.ref.get(key, verify_checksums=verify_checksums,
                 fill_cache=fill_cache)
 
-    # pylint: disable=W0212
     def write(self, batch, sync=None):
         if sync is None:
             sync = self._default_sync
-        if self._prefix is not None and not batch._private:
+        prefix = self._prefix
+        if prefix is not None and not batch._private:
             unscoped_batch = _OpaqueWriteBatch()
             for key, value in batch._puts.iteritems():
-                unscoped_batch._puts[self._prefix + key] = value
+                unscoped_batch._puts[prefix + key] = value
             for key in batch._deletes:
-                unscoped_batch._deletes.add(self._prefix + key)
+                unscoped_batch._deletes.add(prefix + key)
             batch = unscoped_batch
-        return self._impl.write(batch, sync=sync)
+        return self._impl.ref.write(batch, sync=sync)
 
     def iterator(self, verify_checksums=None, fill_cache=None, prefix=None,
                  keys_only=False):
@@ -366,15 +412,17 @@ class DBInterface(object):
             verify_checksums = self._default_verify_checksums
         if fill_cache is None:
             fill_cache = self._default_fill_cache
-        if self._prefix is not None:
+        orig_prefix = self._prefix
+        if orig_prefix is not None:
             if prefix is None:
-                prefix = self._prefix
+                prefix = orig_prefix
             else:
-                prefix = self._prefix + prefix
-        return Iterator(
-                self._impl.iterator(verify_checksums=verify_checksums,
-                                    fill_cache=fill_cache),
-                keys_only=keys_only, prefix=prefix)
+                prefix = orig_prefix + prefix
+        impl = self._impl
+        it = _MemorySafety(impl.ref.iterator(
+                verify_checksums=verify_checksums, fill_cache=fill_cache))
+        impl.addReferrer(it)
+        return Iterator(it, keys_only=keys_only, prefix=prefix)
 
     def snapshot(self, default_sync=None, default_verify_checksums=None,
                  default_fill_cache=None):
@@ -384,8 +432,11 @@ class DBInterface(object):
             default_verify_checksums = self._default_verify_checksums
         if default_fill_cache is None:
             default_fill_cache = self._default_fill_cache
-        return DBInterface(self._impl.snapshot(), prefix=self._prefix,
-                allow_close=False, default_sync=default_sync,
+        impl = self._impl
+        snapshot = _MemorySafety(impl.ref.snapshot())
+        impl.addReferrer(snapshot)
+        return DBInterface(snapshot, prefix=self._prefix,
+                allow_close=True, default_sync=default_sync,
                 default_verify_checksums=default_verify_checksums,
                 default_fill_cache=default_fill_cache)
 
@@ -419,12 +470,13 @@ class DBInterface(object):
             default_verify_checksums = self._default_verify_checksums
         if default_fill_cache is None:
             default_fill_cache = self._default_fill_cache
-        if self._prefix is not None:
-            prefix = self._prefix + prefix
+        orig_prefix = self._prefix
+        if orig_prefix is not None:
+            prefix = orig_prefix + prefix
         return DBInterface(self._impl, prefix=prefix, allow_close=False,
-                default_sync=default_sync,
-                default_verify_checksums=default_verify_checksums,
-                default_fill_cache=default_fill_cache)
+                           default_sync=default_sync,
+                           default_verify_checksums=default_verify_checksums,
+                           default_fill_cache=default_fill_cache)
 
     def range(self, start_key=None, end_key=None, start_inclusive=True,
             end_inclusive=False, verify_checksums=None, fill_cache=None):
@@ -454,7 +506,7 @@ class DBInterface(object):
                 fill_cache=fill_cache, prefix=prefix).seekFirst().values()
 
     def approximateDiskSizes(self, *ranges):
-        return self._impl.approximateDiskSizes(*ranges)
+        return self._impl.ref.approximateDiskSizes(*ranges)
 
     def compactRange(self, start_key, end_key):
-        return self._impl.compactRange(start_key, end_key)
+        return self._impl.ref.compactRange(start_key, end_key)

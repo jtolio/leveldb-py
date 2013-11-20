@@ -62,4 +62,4 @@ def timeEach(*classes):
         print cls, "%fx" % (speed / min_speed), total_counts[cls]
 
 
-timeEach(leveldb.CythonDB, leveldb.DB)
+timeEach(leveldb.CythonDB, leveldb.CtypesDB)
