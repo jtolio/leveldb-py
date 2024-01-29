@@ -20,9 +20,9 @@ leveldb-py:
 ## Sample Usage 
 
 ```
-import leveldb
+import lvldb
 
-db = leveldb.DB("/path/to/db", create_if_missing=True)
+db = lvldb.DB("/path/to/db", create_if_missing=True)
 db.put("key", "value")
 print db.get("key")
 
