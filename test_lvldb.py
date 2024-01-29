@@ -26,7 +26,7 @@ import sys
 import time
 import shutil
 import random
-import leveldb
+import lvldb
 import argparse
 import tempfile
 import unittest
@@ -95,24 +95,24 @@ class LevelDBTestCasesMixIn(object):
                 for prefix in keys(alphabet, length - 1):
                     yield prefix + char
 
-        for val, key in enumerate(keys(map(chr, xrange(ord('a'), ord('f'))))):
+        for val, key in enumerate(keys(list(map(chr, range(ord('a'), ord('f')))))):
             db.put(key, str(val))
 
-        self.assertEquals([row.key for row in db.range("bbbb", "bbcb")],
+        self.assertEqual([row.key for row in db.range("bbbb", "bbcb")],
             ['bbbba', 'bbbbb', 'bbbbc', 'bbbbd', 'bbbbe', 'bbbca', 'bbbcb',
              'bbbcc', 'bbbcd', 'bbbce', 'bbbda', 'bbbdb', 'bbbdc', 'bbbdd',
              'bbbde', 'bbbea', 'bbbeb', 'bbbec', 'bbbed', 'bbbee', 'bbcaa',
              'bbcab', 'bbcac', 'bbcad', 'bbcae'])
-        self.assertEquals([row.key for row in db.range("bbbbb", "bbcbb")],
+        self.assertEqual([row.key for row in db.range("bbbbb", "bbcbb")],
             ['bbbbb', 'bbbbc', 'bbbbd', 'bbbbe', 'bbbca', 'bbbcb', 'bbbcc',
              'bbbcd', 'bbbce', 'bbbda', 'bbbdb', 'bbbdc', 'bbbdd', 'bbbde',
              'bbbea', 'bbbeb', 'bbbec', 'bbbed', 'bbbee', 'bbcaa', 'bbcab',
              'bbcac', 'bbcad', 'bbcae', 'bbcba'])
-        self.assertEquals([r.key for r in db.scope("dd").range("bb", "cb")],
+        self.assertEqual([r.key for r in db.scope("dd").range("bb", "cb")],
             ['bba', 'bbb', 'bbc', 'bbd', 'bbe', 'bca', 'bcb', 'bcc', 'bcd',
              'bce', 'bda', 'bdb', 'bdc', 'bdd', 'bde', 'bea', 'beb', 'bec',
              'bed', 'bee', 'caa', 'cab', 'cac', 'cad', 'cae'])
-        self.assertEquals([r.key for r in db.scope("dd").range("bbb", "cbb")],
+        self.assertEqual([r.key for r in db.scope("dd").range("bbb", "cbb")],
             ['bbb', 'bbc', 'bbd', 'bbe', 'bca', 'bcb', 'bcc', 'bcd', 'bce',
              'bda', 'bdb', 'bdc', 'bdd', 'bde', 'bea', 'beb', 'bec', 'bed',
              'bee', 'caa', 'cab', 'cac', 'cad', 'cae', 'cba'])
@@ -125,66 +125,66 @@ class LevelDBTestCasesMixIn(object):
         db.put("dd", "4")
         db.put("ee", "5")
 
-        self.assertEquals([r.key for r in db.iterator().seek("d").range()],
+        self.assertEqual([r.key for r in db.iterator().seek("d").range()],
                 ["aa", "bb", "cc", "dd", "ee"])
-        self.assertEquals([r.key for r in db.iterator().seek("d").range(
+        self.assertEqual([r.key for r in db.iterator().seek("d").range(
                 start_key="bb")], ["bb", "cc", "dd", "ee"])
-        self.assertEquals([r.key for r in db.iterator().seek("d").range(
+        self.assertEqual([r.key for r in db.iterator().seek("d").range(
                 end_key="cc")], ["aa", "bb"])
-        self.assertEquals([r.key for r in db.iterator().seek("d").range(
+        self.assertEqual([r.key for r in db.iterator().seek("d").range(
                 start_key="bb", end_key="cc")], ["bb"])
-        self.assertEquals([r.key for r in db.iterator().seek("d").range(
+        self.assertEqual([r.key for r in db.iterator().seek("d").range(
                 start_key="b")], ["bb", "cc", "dd", "ee"])
-        self.assertEquals([r.key for r in db.iterator().seek("d").range(
+        self.assertEqual([r.key for r in db.iterator().seek("d").range(
                 end_key="c")], ["aa", "bb"])
-        self.assertEquals([r.key for r in db.iterator().seek("d").range(
+        self.assertEqual([r.key for r in db.iterator().seek("d").range(
                 start_key="b", end_key="c")], ["bb"])
 
-        self.assertEquals([r.key for r in db.iterator().seek("d").range(
+        self.assertEqual([r.key for r in db.iterator().seek("d").range(
                 start_key="bb", start_inclusive=True)],
                 ["bb", "cc", "dd", "ee"])
-        self.assertEquals([r.key for r in db.iterator().seek("d").range(
+        self.assertEqual([r.key for r in db.iterator().seek("d").range(
                 start_key="bb", start_inclusive=False)],
                 ["cc", "dd", "ee"])
 
-        self.assertEquals([r.key for r in db.iterator().seek("d").range(
+        self.assertEqual([r.key for r in db.iterator().seek("d").range(
                 end_key="cc", end_inclusive=True)], ["aa", "bb", "cc"])
-        self.assertEquals([r.key for r in db.iterator().seek("d").range(
+        self.assertEqual([r.key for r in db.iterator().seek("d").range(
                 end_key="cc", end_inclusive=False)], ["aa", "bb"])
 
-        self.assertEquals([r.key for r in db.iterator().seek("d").range(
+        self.assertEqual([r.key for r in db.iterator().seek("d").range(
                 start_key="bb", end_key="cc", start_inclusive=True,
                 end_inclusive=True)], ["bb", "cc"])
-        self.assertEquals([r.key for r in db.iterator().seek("d").range(
+        self.assertEqual([r.key for r in db.iterator().seek("d").range(
                 start_key="bb", end_key="cc", start_inclusive=True,
                 end_inclusive=False)], ["bb"])
-        self.assertEquals([r.key for r in db.iterator().seek("d").range(
+        self.assertEqual([r.key for r in db.iterator().seek("d").range(
                 start_key="bb", end_key="cc", start_inclusive=False,
                 end_inclusive=True)], ["cc"])
-        self.assertEquals([r.key for r in db.iterator().seek("d").range(
+        self.assertEqual([r.key for r in db.iterator().seek("d").range(
                 start_key="bb", end_key="cc", start_inclusive=False,
                 end_inclusive=False)], [])
 
-        self.assertEquals([r.key for r in db.iterator().seek("d").range(
+        self.assertEqual([r.key for r in db.iterator().seek("d").range(
                 start_key="b", start_inclusive=True)],
                 ["bb", "cc", "dd", "ee"])
-        self.assertEquals([r.key for r in db.iterator().seek("d").range(
+        self.assertEqual([r.key for r in db.iterator().seek("d").range(
                 start_key="b", start_inclusive=False)],
                 ["bb", "cc", "dd", "ee"])
-        self.assertEquals([r.key for r in db.iterator().seek("d").range(
+        self.assertEqual([r.key for r in db.iterator().seek("d").range(
                 end_key="c", end_inclusive=True)], ["aa", "bb"])
-        self.assertEquals([r.key for r in db.iterator().seek("d").range(
+        self.assertEqual([r.key for r in db.iterator().seek("d").range(
                 end_key="c", end_inclusive=False)], ["aa", "bb"])
-        self.assertEquals([r.key for r in db.iterator().seek("d").range(
+        self.assertEqual([r.key for r in db.iterator().seek("d").range(
                 start_key="b", end_key="c", start_inclusive=True,
                 end_inclusive=True)], ["bb"])
-        self.assertEquals([r.key for r in db.iterator().seek("d").range(
+        self.assertEqual([r.key for r in db.iterator().seek("d").range(
                 start_key="b", end_key="c", start_inclusive=False,
                 end_inclusive=True)], ["bb"])
-        self.assertEquals([r.key for r in db.iterator().seek("d").range(
+        self.assertEqual([r.key for r in db.iterator().seek("d").range(
                 start_key="b", end_key="c", start_inclusive=True,
                 end_inclusive=False)], ["bb"])
-        self.assertEquals([r.key for r in db.iterator().seek("d").range(
+        self.assertEqual([r.key for r in db.iterator().seek("d").range(
                 start_key="b", end_key="c", start_inclusive=False,
                 end_inclusive=False)], ["bb"])
 
@@ -198,7 +198,7 @@ class LevelDBTestCasesMixIn(object):
 
         def mod(op, db, ops):
             if use_writebatch:
-                batch = leveldb.WriteBatch()
+                batch = lvldb.WriteBatch()
                 for args in ops:
                     getattr(batch, op)(*args)
                 db.write(batch)
@@ -215,22 +215,22 @@ class LevelDBTestCasesMixIn(object):
         db_data = [("1", "2"), ("prefix1_3", "4"), ("prefix2_5", "6"),
                    ("prefix2_a_13", "14"), ("prefix2_a_7", "8"),
                    ("prefix2_b_9", "10"), ("prefix3_11", "12")]
-        self.assertEquals(list(db), db_data)
-        self.assertEquals(list(scoped_db_1), [("3", "4")])
+        self.assertEqual(list(db), db_data)
+        self.assertEqual(list(scoped_db_1), [("3", "4")])
         scoped_db_2_data = [("5", "6"), ("a_13", "14"), ("a_7", "8"),
                 ("b_9", "10")]
-        self.assertEquals(list(scoped_db_2), scoped_db_2_data)
-        self.assertEquals(list(scoped_db_2a), [("13", "14"), ("7", "8")])
-        self.assertEquals(list(scoped_db_2b), [("9", "10")])
-        self.assertEquals(list(scoped_db_3), [("11", "12")])
+        self.assertEqual(list(scoped_db_2), scoped_db_2_data)
+        self.assertEqual(list(scoped_db_2a), [("13", "14"), ("7", "8")])
+        self.assertEqual(list(scoped_db_2b), [("9", "10")])
+        self.assertEqual(list(scoped_db_3), [("11", "12")])
         for key, val in db_data:
-            self.assertEquals(db.get(key), val)
+            self.assertEqual(db.get(key), val)
         for key, val in scoped_db_2_data:
-            self.assertEquals(scoped_db_2.get(key), val)
-        self.assertEquals(scoped_db_1.get("3"), "4")
-        self.assertEquals(scoped_db_2a.get("7"), "8")
-        self.assertEquals(scoped_db_2b.get("9"), "10")
-        self.assertEquals(scoped_db_3.get("11"), "12")
+            self.assertEqual(scoped_db_2.get(key), val)
+        self.assertEqual(scoped_db_1.get("3"), "4")
+        self.assertEqual(scoped_db_2a.get("7"), "8")
+        self.assertEqual(scoped_db_2b.get("9"), "10")
+        self.assertEqual(scoped_db_3.get("11"), "12")
         self.assertEqual(scoped_db_2a.get("13"), "14")
         mod("delete", db, [["1"], ["prefix2_a_7"]])
         mod("delete", scoped_db_1, [["3"]])
@@ -238,20 +238,20 @@ class LevelDBTestCasesMixIn(object):
         mod("delete", scoped_db_2a, [["13"]])
         mod("delete", scoped_db_2b, [["9"]])
         mod("delete", scoped_db_3, [["11"]])
-        self.assertEquals(list(db), [])
-        self.assertEquals(list(scoped_db_1), [])
-        self.assertEquals(list(scoped_db_2), [])
-        self.assertEquals(list(scoped_db_2a), [])
-        self.assertEquals(list(scoped_db_2b), [])
-        self.assertEquals(list(scoped_db_3), [])
+        self.assertEqual(list(db), [])
+        self.assertEqual(list(scoped_db_1), [])
+        self.assertEqual(list(scoped_db_2), [])
+        self.assertEqual(list(scoped_db_2a), [])
+        self.assertEqual(list(scoped_db_2b), [])
+        self.assertEqual(list(scoped_db_3), [])
         for key, val in db_data:
-            self.assertEquals(db.get(key), None)
+            self.assertEqual(db.get(key), None)
         for key, val in scoped_db_2_data:
-            self.assertEquals(scoped_db_2.get(key), None)
-        self.assertEquals(scoped_db_1.get("3"), None)
-        self.assertEquals(scoped_db_2a.get("7"), None)
-        self.assertEquals(scoped_db_2b.get("9"), None)
-        self.assertEquals(scoped_db_3.get("11"), None)
+            self.assertEqual(scoped_db_2.get(key), None)
+        self.assertEqual(scoped_db_1.get("3"), None)
+        self.assertEqual(scoped_db_2a.get("7"), None)
+        self.assertEqual(scoped_db_2b.get("9"), None)
+        self.assertEqual(scoped_db_3.get("11"), None)
         self.assertEqual(scoped_db_2a.get("13"), None)
         db.close()
 
@@ -268,26 +268,26 @@ class LevelDBTestCasesMixIn(object):
             scope.putTo(batch, str(i), str(i))
         db.write(batch)
         for i, scope in enumerate(scopes):
-            self.assertEquals(scope.get(str(i)), str(i))
+            self.assertEqual(scope.get(str(i)), str(i))
         batch.clear()
         for i, scope in enumerate(scopes):
             scope.deleteFrom(batch, str(i))
         db.write(batch)
         for i, scope in enumerate(scopes):
-            self.assertEquals(scope.get(str(i)), None)
+            self.assertEqual(scope.get(str(i)), None)
         # same effect when done through any scope
         batch = random.choice(scopes).newBatch()
         for i, scope in enumerate(scopes):
             scope.putTo(batch, str(i), str(2 * (i + 1)))
         random.choice(scopes).write(batch)
         for i, scope in enumerate(scopes):
-            self.assertEquals(scope.get(str(i)), str(2 * (i + 1)))
+            self.assertEqual(scope.get(str(i)), str(2 * (i + 1)))
         batch.clear()
         for i, scope in enumerate(scopes):
             scope.deleteFrom(batch, str(i))
         random.choice(scopes).write(batch)
         for i, scope in enumerate(scopes):
-            self.assertEquals(scope.get(str(i)), None)
+            self.assertEqual(scope.get(str(i)), None)
 
     def testKeysWithZeroBytes(self):
         db = self.db_class(self.db_path, create_if_missing=True)
@@ -375,25 +375,25 @@ class LevelDBTestCasesMixIn(object):
 
 class LevelDBTestCases(LevelDBTestCasesMixIn, unittest.TestCase):
 
-    db_class = staticmethod(leveldb.DB)
+    db_class = staticmethod(lvldb.DB)
 
     def testInit(self):
-        self.assertRaises(leveldb.Error, self.db_class, self.db_path)
+        self.assertRaises(lvldb.Error, self.db_class, self.db_path)
         self.db_class(self.db_path, create_if_missing=True).close()
         self.db_class(self.db_path, create_if_missing=True).close()
         self.db_class(self.db_path).close()
-        self.assertRaises(leveldb.Error, self.db_class, self.db_path,
+        self.assertRaises(lvldb.Error, self.db_class, self.db_path,
                 create_if_missing=True, error_if_exists=True)
 
     def testPutSync(self, size=100):
         db = self.db_class(self.db_path, create_if_missing=True)
-        for i in xrange(size):
+        for i in range(size):
             db.put(str(i), str(i + 1))
         start_sync_time = time.time()
-        for i in xrange(size):
+        for i in range(size):
             db.put(str(i), str(i + 1), sync=True)
         start_unsync_time = time.time()
-        for i in xrange(size):
+        for i in range(size):
             db.put(str(i), str(i + 1))
         end_time = time.time()
         sync_time = start_unsync_time - start_sync_time
@@ -403,16 +403,16 @@ class LevelDBTestCases(LevelDBTestCasesMixIn, unittest.TestCase):
 
     def testDeleteSync(self, size=100):
         db = self.db_class(self.db_path, create_if_missing=True)
-        for i in xrange(size):
+        for i in range(size):
             db.put(str(i), str(i + 1))
         start_sync_time = time.time()
-        for i in xrange(size):
+        for i in range(size):
             db.delete(str(i), sync=True)
         end_sync_time = time.time()
-        for i in xrange(size):
+        for i in range(size):
             db.put(str(i), str(i + 1))
         start_unsync_time = time.time()
-        for i in xrange(size):
+        for i in range(size):
             db.delete(str(i))
         end_unsync_time = time.time()
         sync_time = end_sync_time - start_sync_time
@@ -430,8 +430,8 @@ class LevelDBTestCases(LevelDBTestCasesMixIn, unittest.TestCase):
             path = tempfile.mkdtemp()
             paths.append(path)
             db = self.db_class(path, create_if_missing=True)
-            batch = leveldb.WriteBatch()
-            for x in xrange(10000):
+            batch = lvldb.WriteBatch()
+            for x in range(10000):
                 batch.put(str(x), str(x))
             db.write(batch)
             dbs.append(db)
@@ -444,8 +444,8 @@ class LevelDBTestCases(LevelDBTestCasesMixIn, unittest.TestCase):
         paths.append(path)
         while time.time() - start_time < short_time:
             db = self.db_class(path, create_if_missing=True)
-            batch = leveldb.WriteBatch()
-            for x in xrange(10000):
+            batch = lvldb.WriteBatch()
+            for x in range(10000):
                 batch.put(str(x), str(x))
             db.write(batch)
             db.close()
@@ -456,8 +456,8 @@ class LevelDBTestCases(LevelDBTestCasesMixIn, unittest.TestCase):
         paths.append(path)
         db = self.db_class(path, create_if_missing=True)
         while time.time() - start_time < short_time:
-            batch = leveldb.WriteBatch()
-            for x in xrange(10000):
+            batch = lvldb.WriteBatch()
+            for x in range(10000):
                 batch.put(str(x), str(x))
             db.write(batch)
         db.close()
@@ -467,7 +467,7 @@ class LevelDBTestCases(LevelDBTestCasesMixIn, unittest.TestCase):
         path = tempfile.mkdtemp()
         paths.append(path)
         db = self.db_class(path, create_if_missing=True)
-        batch = leveldb.WriteBatch()
+        batch = lvldb.WriteBatch()
         x = 0
         while time.time() - start_time < short_time:
             batch.put(str(x), str(x))
@@ -482,7 +482,7 @@ class LevelDBTestCases(LevelDBTestCasesMixIn, unittest.TestCase):
 
 class MemLevelDBTestCases(LevelDBTestCasesMixIn, unittest.TestCase):
 
-    db_class = staticmethod(leveldb.MemoryDB)
+    db_class = staticmethod(lvldb.MemoryDB)
 
 
 class LevelDBIteratorTestMixIn(object):
@@ -555,7 +555,7 @@ class LevelDBIteratorTestMixIn(object):
         """
         Test iterator prefixes
         """
-        batch = leveldb.WriteBatch()
+        batch = lvldb.WriteBatch()
         batch.put('a', 'b')
         batch.put('b', 'b')
         batch.put('cd', 'a')
@@ -747,14 +747,14 @@ class LevelDBIteratorTestMixIn(object):
 
 class LevelDBIteratorTest(LevelDBIteratorTestMixIn, unittest.TestCase):
 
-    db_class = staticmethod(leveldb.DB)
+    db_class = staticmethod(lvldb.DB)
 
     def testApproximateSizes(self):
         db = self.db_class(self.db_path, create_if_missing=True)
         self.assertEqual([0, 0, 0],
             db.approximateDiskSizes(("a", "z"), ("0", "9"), ("A", "Z")))
-        batch = leveldb.WriteBatch()
-        for i in xrange(100):
+        batch = lvldb.WriteBatch()
+        for i in range(100):
             batch.put("c%d" % i, os.urandom(4096))
         db.write(batch, sync=True)
         db.close()
@@ -763,7 +763,7 @@ class LevelDBIteratorTest(LevelDBIteratorTestMixIn, unittest.TestCase):
         self.assertEqual(sizes[0], 0)
         self.assertEqual(sizes[1], 0)
         self.assertTrue(sizes[2] >= 4096 * 100)
-        for i in xrange(10):
+        for i in range(10):
             db.put("3%d" % i, os.urandom(10))
         db.close()
         db = self.db_class(self.db_path)
@@ -777,14 +777,14 @@ class LevelDBIteratorTest(LevelDBIteratorTestMixIn, unittest.TestCase):
 
 class MemLevelDBIteratorTest(LevelDBIteratorTestMixIn, unittest.TestCase):
 
-    db_class = staticmethod(leveldb.MemoryDB)
+    db_class = staticmethod(lvldb.MemoryDB)
 
 
 def main():
     parser = argparse.ArgumentParser("run tests")
     parser.add_argument("--runs", type=int, default=1)
     args = parser.parse_args()
-    for _ in xrange(args.runs):
+    for _ in range(args.runs):
         unittest.main(argv=sys.argv[:1], exit=False)
 
 
