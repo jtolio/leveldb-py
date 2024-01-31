@@ -55,7 +55,25 @@ import ctypes.util
 import weakref
 import threading
 from collections import namedtuple
-from functools import reduce
+import sys
+PY3 = sys.version_info.major == 3
+if PY3:
+    from functools import reduce
+    _s2b = lambda s: s.encode() if s and isinstance(s, str) else s
+    _b2s = lambda b: b.decode() if isinstance(b, bytes) else b
+
+    _bs2bi = lambda bs: reduce(lambda x, y : (x<<8)+y, (c for c in bs), 0)
+    _bi2bs = lambda bi: bi.to_bytes((bi.bit_length() + 7) // 8, byteorder='big')
+
+else:
+    _s2b = lambda s: s
+    _b2s = lambda b: b
+
+    v_s = vars()
+    range =v_s['__builtins__'].get('xrange')
+    int = v_s['__builtins__'].get('long')
+    iteritems = lambda d: ((hasattr(d, 'iteritems') and d.iteritems) or d.items)()
+
 
 _ldb = ctypes.CDLL(ctypes.util.find_library('leveldb'))
 
@@ -197,71 +215,12 @@ _ldb.leveldb_free.restype = None
 
 Row = namedtuple('Row', 'key value')
 
-_s2b = lambda s: s.encode() if s and isinstance(s, str) else s
-_b2s = lambda b: b.decode() if isinstance(b, bytes) else b
-_bs2bi = lambda bs: reduce(lambda x, y : (x<<8)+y, (c for c in bs), 0)
-_bi2bs = lambda bi: bi.to_bytes((bi.bit_length() + 7) // 8, byteorder='big')
-
-
-"""
-#pip install bitarray
-import bitarray
-from bitarray.util import ba2int, int2ba
-
-_bi2bs = lambda bigint: int2ba(bigint).tobytes()
-
-def _bs2bi(bytestr):
-    ba = bitarray()
-    ba.frombytes(bytestr)
-    return ba2int(ba)
-    
-"""
-
-
 
 class Error(Exception):
     pass
 
 
-def bisect_left_out(a, x, lo=0, hi=None, *, key=None):
-    """Return the index where to insert item x in list a, assuming a is sorted.
-
-    The return value i is such that all e in a[:i] have e < x, and all e in
-    a[i:] have e >= x.  So if x already appears in the list, a.insert(i, x) will
-    insert just before the leftmost x already there.
-
-    Optional args lo (default 0) and hi (default len(a)) bound the
-    slice of a to be searched.
-    """
-
-    if lo < 0:
-        raise ValueError('lo must be non-negative')
-    if hi is None:
-        hi = len(a)
-    # Note, the comparison uses "<" to match the
-    # __lt__() logic in list.sort() and in heapq.
-    if key is None:
-        while lo < hi:
-            mid = (lo + hi) // 2
-            try:
-                if a[mid] < x:
-                    lo = mid + 1
-                else:
-                    hi = mid
-            except:
-                print("here...")
-    else:
-        while lo < hi:
-            mid = (lo + hi) // 2
-            if key(a[mid]) < x:
-                lo = mid + 1
-            else:
-                hi = mid
-    return lo
-
-
-
-class Iterator:
+class Iterator(object):
 
     """This class is created by calling __iter__ or iterator on a DB interface
     """
@@ -312,13 +271,14 @@ class Iterator:
 
         # we have a prefix. see if there's anything after our prefix.
         # there's probably a much better way to calculate the next prefix.
-        next_prefix = _bi2bs(_bs2bi(self._prefix) + 1).rjust(len(self._prefix), b'\x00')
-        """
-        hex_prefix = self._prefix.encode('hex')
-        next_prefix = hex(long(hex_prefix, 16) + 1)[2:].rstrip("L")
-        next_prefix = next_prefix.rjust(len(hex_prefix), "0")
-        next_prefix = next_prefix.decode("hex").rstrip("\x00")
-        """
+        if PY3:
+            next_prefix = _bi2bs(_bs2bi(self._prefix) + 1).rjust(len(self._prefix), b'\x00')
+        else:
+            hex_prefix = self._prefix.encode('hex')
+            next_prefix = hex(int(hex_prefix, 16) + 1)[2:].rstrip("L")
+            next_prefix = next_prefix.rjust(len(hex_prefix), "0")
+            next_prefix = next_prefix.decode("hex").rstrip("\x00")
+        
         self._impl.seek(next_prefix)
         if self._impl.valid():
             # there is something after our prefix. we're on it, so step back
@@ -441,8 +401,6 @@ class Iterator:
     def close(self):
         self._impl.close()
 
-    #__call__ = __next__
-
 
 class _OpaqueWriteBatch(object):
 
@@ -482,7 +440,6 @@ class WriteBatch(_OpaqueWriteBatch):
         self._deletes.add(key)
 
 
-
 class DBInterface(object):
 
     """This class is created through a few different means:
@@ -519,7 +476,7 @@ class DBInterface(object):
 
     def newBatch(self):
         return _OpaqueWriteBatch()
-    
+
     def put(self, key, val, sync=None):
         key = _s2b(key)
         val = _s2b(val)
@@ -575,7 +532,8 @@ class DBInterface(object):
             sync = self._default_sync
         if self._prefix is not None and not batch._private:
             unscoped_batch = _OpaqueWriteBatch()
-            for key, value in batch._puts.items():
+            batch_puts_items = batch._puts.items() if PY3 else iteritems(batch._puts)
+            for key, value in batch_puts_items:
                 unscoped_batch._puts[self._prefix + key] = value
             for key in batch._deletes:
                 unscoped_batch._deletes.add(self._prefix + key)
@@ -679,7 +637,8 @@ class DBInterface(object):
                 fill_cache=fill_cache, prefix=prefix).seekFirst().values()
 
     def approximateDiskSizes(self, *ranges):
-        ranges = tuple((_s2b(k1), _s2b(k2)) for k1, k2 in ranges)
+        if PY3:
+            ranges = tuple((_s2b(k1), _s2b(k2)) for k1, k2 in ranges)
         return self._impl.approximateDiskSizes(*ranges)
 
 
@@ -719,10 +678,9 @@ class _IteratorMemImpl(object):
 
     def val(self):
         return self._data[self._idx][1]
-    
+
     def seek(self, key):
-        #self._idx = bisect.bisect_left(self._data, (key, ""))
-        self._idx = bisect_left_out(self._data, (key, b''))
+        self._idx = bisect.bisect_left(self._data, (key, b''))
 
     def seekFirst(self):
         self._idx = 0
@@ -762,13 +720,14 @@ class _MemoryDBImpl(object):
         val = _s2b(val)
         if self._is_snapshot:
             raise TypeError("cannot put on leveldb snapshot")
-        #assert isinstance(key, str)
-        #assert isinstance(val, str)
-        assert isinstance(key, bytes)
-        assert isinstance(val, bytes)
+        if PY3:
+            assert isinstance(key, bytes)
+            assert isinstance(val, bytes)
+        else:
+            assert isinstance(key, str)
+            assert isinstance(val, str)
         with self._lock:
-            #idx = bisect.bisect_left(self._data, (key, ""))
-            idx = bisect_left_out(self._data, (key, b''))
+            idx = bisect.bisect_left(self._data, (key, b''))
             if 0 <= idx < len(self._data) and self._data[idx][0] == key:
                 self._data[idx] = (key, val)
             else:
@@ -778,15 +737,13 @@ class _MemoryDBImpl(object):
         if self._is_snapshot:
             raise TypeError("cannot delete on leveldb snapshot")
         with self._lock:
-            #idx = bisect.bisect_left(self._data, (key, ""))
-            idx = bisect_left_out(self._data, (key, b''))
+            idx = bisect.bisect_left(self._data, (key, b''))
             if 0 <= idx < len(self._data) and self._data[idx][0] == key:
                 del self._data[idx]
 
     def get(self, key, **_kwargs):
         with self._lock:
-            #idx = bisect.bisect_left(self._data, (key, ""))
-            idx = bisect_left_out(self._data, (key, b''))
+            idx = bisect.bisect_left(self._data, (key, b''))
             if 0 <= idx < len(self._data) and self._data[idx][0] == key:
                 return self._data[idx][1]
             return None
@@ -796,7 +753,8 @@ class _MemoryDBImpl(object):
         if self._is_snapshot:
             raise TypeError("cannot write on leveldb snapshot")
         with self._lock:
-            for key, val in batch._puts.items():
+            batch_puts_items = batch._puts.items() if PY3 else iteritems(batch._puts)
+            for key, val in batch_puts_items:
                 self.put(key, val)
             for key in batch._deletes:
                 self.delete(key)
@@ -1018,7 +976,8 @@ class _LevelDBImpl(object):
         if self._snapshot is not None:
             raise TypeError("cannot delete on leveldb snapshot")
         real_batch = _ldb.leveldb_writebatch_create()
-        for key, val in batch._puts.items():
+        batch_puts_items = batch._puts.items() if PY3 else iteritems(batch._puts)
+        for key, val in batch_puts_items:
             _ldb.leveldb_writebatch_put(real_batch, key, len(key), val,
                     len(val))
         for key in batch._deletes:
@@ -1057,8 +1016,10 @@ class _LevelDBImpl(object):
         sizes = (ctypes.c_uint64 * len(ranges))()
         for i, range_ in enumerate(ranges):
             assert isinstance(range_, tuple) and len(range_) == 2
-            #assert isinstance(range_[0], str) and isinstance(range_[1], str)
-            assert isinstance(range_[0], bytes) and isinstance(range_[1], bytes)
+            if PY3:
+                assert isinstance(range_[0], bytes) and isinstance(range_[1], bytes)
+            else:
+                assert isinstance(range_[0], str) and isinstance(range_[1], str)
             start_keys[i] = ctypes.cast(range_[0], ctypes.c_void_p)
             end_keys[i] = ctypes.cast(range_[1], ctypes.c_void_p)
             start_lens[i], end_lens[i] = len(range_[0]), len(range_[1])

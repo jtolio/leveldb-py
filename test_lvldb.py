@@ -31,6 +31,9 @@ import argparse
 import tempfile
 import unittest
 
+import sys
+print('Python version:\t%s' % (sys.version))
+
 
 class LevelDBTestCasesMixIn(object):
 

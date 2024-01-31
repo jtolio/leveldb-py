@@ -2,7 +2,8 @@
 
 The existing three [LevelDB](http://code.google.com/p/leveldb/) interfaces ([py-leveldb](http://code.google.com/p/py-leveldb/), [cpy-leveldb](https://github.com/forhappy/cpy-leveldb), [plyvel](https://github.com/wbolster/plyvel/)) use the Python C API and compile Python modules that work with LevelDB's C++ interface. This Python module simply uses the ctypes library to LevelDB's C interface - making it more portable across Python implementations and easier to install and distribute. 
 
-leveldb-py:
+lvldb:
+  * Python 2-3 compatible
   * supports get/put/delete (with standard read/write options)
   * supports bloom filters
   * supports leveldb LRU cache
@@ -20,13 +21,15 @@ leveldb-py:
 ## Sample Usage 
 
 ```
+# Python3
 import lvldb
 
 db = lvldb.DB("/path/to/db", create_if_missing=True)
-db.put("key", "value")
-print db.get("key")
+db.put("key1", "value1")
+db.put("key2", "value2")
+print(f"key1 => {db.get('key1')} ")
 
 for key, value in db:
-  print key, value
+    print(f"{key} => {value}")
 ```
 
