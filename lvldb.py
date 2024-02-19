@@ -113,6 +113,8 @@ _ldb.leveldb_options_set_block_size.argtypes = [ctypes.c_void_p,
 _ldb.leveldb_options_set_block_size.restype = None
 _ldb.leveldb_options_destroy.argtypes = [ctypes.c_void_p]
 _ldb.leveldb_options_destroy.restype = None
+_ldb.leveldb_options_set_compression.argtypes = [ctypes.c_void_p, ctypes.c_int]
+_ldb.leveldb_options_set_compression.restype = None
 
 _ldb.leveldb_open.argtypes = [ctypes.c_void_p, ctypes.c_char_p,
         ctypes.c_void_p]
@@ -874,7 +876,7 @@ def DB(path, bloom_filter_size=10, create_if_missing=False,
        write_buffer_size=(4 * 1024 * 1024), max_open_files=1000,
        block_cache_size=(8 * 1024 * 1024), block_size=(4 * 1024),
        default_sync=False, default_verify_checksums=False,
-       default_fill_cache=True):
+       compression=1, default_fill_cache=True):
     """This is the expected way to open a database. Returns a DBInterface.
     """
     path = _s2b(path)
@@ -896,6 +898,7 @@ def DB(path, bloom_filter_size=10, create_if_missing=False,
     _ldb.leveldb_options_set_max_open_files(options, max_open_files)
     _ldb.leveldb_options_set_cache(options, cache.ref)
     _ldb.leveldb_options_set_block_size(options, block_size)
+    _ldb.leveldb_options_set_compression(options, compression)
 
     error = ctypes.POINTER(ctypes.c_char)()
     db = _ldb.leveldb_open(options, path, ctypes.byref(error))
