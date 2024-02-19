@@ -55,6 +55,25 @@ import ctypes.util
 import weakref
 import threading
 from collections import namedtuple
+import sys
+PY3 = sys.version_info.major == 3
+if PY3:
+    from functools import reduce
+    _s2b = lambda s: s.encode() if s and isinstance(s, str) else s
+    _b2s = lambda b: b.decode() if isinstance(b, bytes) else b
+
+    _bs2bi = lambda bs: reduce(lambda x, y : (x<<8)+y, (c for c in bs), 0)
+    _bi2bs = lambda bi: bi.to_bytes((bi.bit_length() + 7) // 8, byteorder='big')
+
+else:
+    _s2b = lambda s: s
+    _b2s = lambda b: b
+
+    v_s = vars()
+    range =v_s['__builtins__'].get('xrange')
+    int = v_s['__builtins__'].get('long')
+    iteritems = lambda d: ((hasattr(d, 'iteritems') and d.iteritems) or d.items)()
+
 
 _ldb = ctypes.CDLL(ctypes.util.find_library('leveldb'))
 
@@ -94,6 +113,8 @@ _ldb.leveldb_options_set_block_size.argtypes = [ctypes.c_void_p,
 _ldb.leveldb_options_set_block_size.restype = None
 _ldb.leveldb_options_destroy.argtypes = [ctypes.c_void_p]
 _ldb.leveldb_options_destroy.restype = None
+_ldb.leveldb_options_set_compression.argtypes = [ctypes.c_void_p, ctypes.c_int]
+_ldb.leveldb_options_set_compression.restype = None
 
 _ldb.leveldb_open.argtypes = [ctypes.c_void_p, ctypes.c_char_p,
         ctypes.c_void_p]
@@ -210,7 +231,7 @@ class Iterator(object):
 
     def __init__(self, impl, keys_only=False, prefix=None):
         self._impl = impl
-        self._prefix = prefix
+        self._prefix = _s2b(prefix)
         self._keys_only = keys_only
 
     def valid(self):
@@ -252,10 +273,14 @@ class Iterator(object):
 
         # we have a prefix. see if there's anything after our prefix.
         # there's probably a much better way to calculate the next prefix.
-        hex_prefix = self._prefix.encode('hex')
-        next_prefix = hex(long(hex_prefix, 16) + 1)[2:].rstrip("L")
-        next_prefix = next_prefix.rjust(len(hex_prefix), "0")
-        next_prefix = next_prefix.decode("hex").rstrip("\x00")
+        if PY3:
+            next_prefix = _bi2bs(_bs2bi(self._prefix) + 1).rjust(len(self._prefix), b'\x00')
+        else:
+            hex_prefix = self._prefix.encode('hex')
+            next_prefix = hex(int(hex_prefix, 16) + 1)[2:].rstrip("L")
+            next_prefix = next_prefix.rjust(len(hex_prefix), "0")
+            next_prefix = next_prefix.decode("hex").rstrip("\x00")
+        
         self._impl.seek(next_prefix)
         if self._impl.valid():
             # there is something after our prefix. we're on it, so step back
@@ -275,6 +300,7 @@ class Iterator(object):
         @return: self
         @rtype: Iter
         """
+        key = _s2b(key)
         if self._prefix is not None:
             key = self._prefix + key
         self._impl.seek(key)
@@ -288,8 +314,8 @@ class Iterator(object):
         """
         key = self._impl.key()
         if self._prefix is not None:
-            return key[len(self._prefix):]
-        return key
+            return _b2s(key[len(self._prefix):])
+        return _b2s(key)
 
     def value(self):
         """Returns the iterator's current value. You should be sure the
@@ -297,10 +323,13 @@ class Iterator(object):
 
         @rtype: string
         """
-        return self._impl.val()
+        return _b2s(self._impl.val())
 
     def __iter__(self):
         return self
+    
+    def __next__(self):
+        return self.next()
 
     def next(self):
         """Advances the iterator one step. Also returns the current value prior
@@ -402,10 +431,13 @@ class WriteBatch(_OpaqueWriteBatch):
         self._private = False
 
     def put(self, key, val):
+        key = _s2b(key)
+        val = _s2b(val)
         self._deletes.discard(key)
         self._puts[key] = val
 
     def delete(self, key):
+        key = _s2b(key)
         self._puts.pop(key, None)
         self._deletes.add(key)
 
@@ -428,7 +460,7 @@ class DBInterface(object):
                  default_sync=False, default_verify_checksums=False,
                  default_fill_cache=True):
         self._impl = impl
-        self._prefix = prefix
+        self._prefix = _s2b(prefix)
         self._allow_close = allow_close
         self._default_sync = default_sync
         self._default_verify_checksums = default_verify_checksums
@@ -448,6 +480,8 @@ class DBInterface(object):
         return _OpaqueWriteBatch()
 
     def put(self, key, val, sync=None):
+        key = _s2b(key)
+        val = _s2b(val)
         if sync is None:
             sync = self._default_sync
         if self._prefix is not None:
@@ -456,6 +490,8 @@ class DBInterface(object):
 
     # pylint: disable=W0212
     def putTo(self, batch, key, val):
+        key = _s2b(key)
+        val = _s2b(val)
         if not batch._private:
             raise ValueError("batch not from DBInterface.newBatch")
         if self._prefix is not None:
@@ -464,6 +500,7 @@ class DBInterface(object):
         batch._puts[key] = val
 
     def delete(self, key, sync=None):
+        key = _s2b(key)
         if sync is None:
             sync = self._default_sync
         if self._prefix is not None:
@@ -472,6 +509,7 @@ class DBInterface(object):
 
     # pylint: disable=W0212
     def deleteFrom(self, batch, key):
+        key = _s2b(key)
         if not batch._private:
             raise ValueError("batch not from DBInterface.newBatch")
         if self._prefix is not None:
@@ -480,14 +518,15 @@ class DBInterface(object):
         batch._deletes.add(key)
 
     def get(self, key, verify_checksums=None, fill_cache=None):
+        key = _s2b(key)
         if verify_checksums is None:
             verify_checksums = self._default_verify_checksums
         if fill_cache is None:
             fill_cache = self._default_fill_cache
         if self._prefix is not None:
             key = self._prefix + key
-        return self._impl.get(key, verify_checksums=verify_checksums,
-                fill_cache=fill_cache)
+        return _b2s(self._impl.get(key, verify_checksums=verify_checksums,
+                fill_cache=fill_cache))
 
     # pylint: disable=W0212
     def write(self, batch, sync=None):
@@ -495,7 +534,8 @@ class DBInterface(object):
             sync = self._default_sync
         if self._prefix is not None and not batch._private:
             unscoped_batch = _OpaqueWriteBatch()
-            for key, value in batch._puts.iteritems():
+            batch_puts_items = batch._puts.items() if PY3 else iteritems(batch._puts)
+            for key, value in batch_puts_items:
                 unscoped_batch._puts[self._prefix + key] = value
             for key in batch._deletes:
                 unscoped_batch._deletes.add(self._prefix + key)
@@ -504,6 +544,7 @@ class DBInterface(object):
 
     def iterator(self, verify_checksums=None, fill_cache=None, prefix=None,
                  keys_only=False):
+        prefix = _s2b(prefix)
         if verify_checksums is None:
             verify_checksums = self._default_verify_checksums
         if fill_cache is None:
@@ -555,6 +596,7 @@ class DBInterface(object):
 
     def scope(self, prefix, default_sync=None, default_verify_checksums=None,
                  default_fill_cache=None):
+        prefix = _s2b(prefix)
         if default_sync is None:
             default_sync = self._default_sync
         if default_verify_checksums is None:
@@ -588,6 +630,7 @@ class DBInterface(object):
                 fill_cache=fill_cache, prefix=prefix).seekFirst().keys()
 
     def values(self, verify_checksums=None, fill_cache=None, prefix=None):
+        prefix = _s2b(prefix)
         if verify_checksums is None:
             verify_checksums = self._default_verify_checksums
         if fill_cache is None:
@@ -596,9 +639,14 @@ class DBInterface(object):
                 fill_cache=fill_cache, prefix=prefix).seekFirst().values()
 
     def approximateDiskSizes(self, *ranges):
+        if PY3:
+            ranges = tuple((_s2b(k1), _s2b(k2)) for k1, k2 in ranges)
         return self._impl.approximateDiskSizes(*ranges)
 
+
     def compactRange(self, start_key, end_key):
+        start_key = _s2b(start_key)
+        end_key = _s2b(end_key)
         return self._impl.compactRange(start_key, end_key)
 
 
@@ -634,7 +682,7 @@ class _IteratorMemImpl(object):
         return self._data[self._idx][1]
 
     def seek(self, key):
-        self._idx = bisect.bisect_left(self._data, (key, ""))
+        self._idx = bisect.bisect_left(self._data, (key, b''))
 
     def seekFirst(self):
         self._idx = 0
@@ -670,12 +718,18 @@ class _MemoryDBImpl(object):
             self._data = []
 
     def put(self, key, val, **_kwargs):
+        key = _s2b(key)
+        val = _s2b(val)
         if self._is_snapshot:
             raise TypeError("cannot put on leveldb snapshot")
-        assert isinstance(key, str)
-        assert isinstance(val, str)
+        if PY3:
+            assert isinstance(key, bytes)
+            assert isinstance(val, bytes)
+        else:
+            assert isinstance(key, str)
+            assert isinstance(val, str)
         with self._lock:
-            idx = bisect.bisect_left(self._data, (key, ""))
+            idx = bisect.bisect_left(self._data, (key, b''))
             if 0 <= idx < len(self._data) and self._data[idx][0] == key:
                 self._data[idx] = (key, val)
             else:
@@ -685,13 +739,13 @@ class _MemoryDBImpl(object):
         if self._is_snapshot:
             raise TypeError("cannot delete on leveldb snapshot")
         with self._lock:
-            idx = bisect.bisect_left(self._data, (key, ""))
+            idx = bisect.bisect_left(self._data, (key, b''))
             if 0 <= idx < len(self._data) and self._data[idx][0] == key:
                 del self._data[idx]
 
     def get(self, key, **_kwargs):
         with self._lock:
-            idx = bisect.bisect_left(self._data, (key, ""))
+            idx = bisect.bisect_left(self._data, (key, b''))
             if 0 <= idx < len(self._data) and self._data[idx][0] == key:
                 return self._data[idx][1]
             return None
@@ -701,7 +755,8 @@ class _MemoryDBImpl(object):
         if self._is_snapshot:
             raise TypeError("cannot write on leveldb snapshot")
         with self._lock:
-            for key, val in batch._puts.iteritems():
+            batch_puts_items = batch._puts.items() if PY3 else iteritems(batch._puts)
+            for key, val in batch_puts_items:
                 self.put(key, val)
             for key in batch._deletes:
                 self.delete(key)
@@ -821,9 +876,10 @@ def DB(path, bloom_filter_size=10, create_if_missing=False,
        write_buffer_size=(4 * 1024 * 1024), max_open_files=1000,
        block_cache_size=(8 * 1024 * 1024), block_size=(4 * 1024),
        default_sync=False, default_verify_checksums=False,
-       default_fill_cache=True):
+       compression=1, default_fill_cache=True):
     """This is the expected way to open a database. Returns a DBInterface.
     """
+    path = _s2b(path)
 
     filter_policy = _PointerRef(
             _ldb.leveldb_filterpolicy_create_bloom(bloom_filter_size),
@@ -842,6 +898,7 @@ def DB(path, bloom_filter_size=10, create_if_missing=False,
     _ldb.leveldb_options_set_max_open_files(options, max_open_files)
     _ldb.leveldb_options_set_cache(options, cache.ref)
     _ldb.leveldb_options_set_block_size(options, block_size)
+    _ldb.leveldb_options_set_compression(options, compression)
 
     error = ctypes.POINTER(ctypes.c_char)()
     db = _ldb.leveldb_open(options, path, ctypes.byref(error))
@@ -922,7 +979,8 @@ class _LevelDBImpl(object):
         if self._snapshot is not None:
             raise TypeError("cannot delete on leveldb snapshot")
         real_batch = _ldb.leveldb_writebatch_create()
-        for key, val in batch._puts.iteritems():
+        batch_puts_items = batch._puts.items() if PY3 else iteritems(batch._puts)
+        for key, val in batch_puts_items:
             _ldb.leveldb_writebatch_put(real_batch, key, len(key), val,
                     len(val))
         for key in batch._deletes:
@@ -961,7 +1019,10 @@ class _LevelDBImpl(object):
         sizes = (ctypes.c_uint64 * len(ranges))()
         for i, range_ in enumerate(ranges):
             assert isinstance(range_, tuple) and len(range_) == 2
-            assert isinstance(range_[0], str) and isinstance(range_[1], str)
+            if PY3:
+                assert isinstance(range_[0], bytes) and isinstance(range_[1], bytes)
+            else:
+                assert isinstance(range_[0], str) and isinstance(range_[1], str)
             start_keys[i] = ctypes.cast(range_[0], ctypes.c_void_p)
             end_keys[i] = ctypes.cast(range_[1], ctypes.c_void_p)
             start_lens[i], end_lens[i] = len(range_[0]), len(range_[1])
